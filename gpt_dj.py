@@ -13,9 +13,14 @@ console = Console()
 
 
 class RadioFreeDJ:
-    def __init__(self, api_key=None, active_model=None, log_path="requests.log"):
+    def __init__(
+        self,
+        api_key=None,
+        active_model=None,
+        log_path="requests.log",
+        on_response=None,
+    ):
         load_dotenv()
-
         # Debug log setup
         debug_log_path = os.getenv("DEBUG_LOG_PATH", "gpt_debug.log")
         self.logger = logging.getLogger("RadioFreeDJ")
@@ -26,10 +31,15 @@ class RadioFreeDJ:
         )
         self.logger.addHandler(handler)
 
+        # Core config
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.active_model = active_model or os.getenv("GPT_MODEL", "gpt-4o-mini")
         self.log_path = os.path.abspath(log_path)
 
+        # Store the optional callback that will receive (prompt, response)
+        self.on_response = on_response
+
+        # Local vs. remote LLM toggles
         self.use_local_llm = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
         self.local_llm_url = os.getenv("LOCAL_LLM_API")
 

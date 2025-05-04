@@ -1,88 +1,113 @@
 import time
 import re
+import json
 from rich.text import Text
 from genius_utils import get_lyrics
 import requests
 from requests.exceptions import RequestException
+import logging
+
+# logging.basicConfig(
+#     level=logging.DEBUG,
+#     format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+# )
+
+logging.disable(logging.CRITICAL)
 
 
 class LyricsSyncManager:
+    API_URL = "https://lrclib.net/api/get"
+
     def __init__(self, spotify_controller):
         self.spotify = spotify_controller
-        self.lyrics_lines = []
+        self.timestamps = []
+        self.lines = []
         self.current_index = 0
-        self.current_display = Text(" Loading lyrics...", style="cyan")
+        self.logger = logging.getLogger(self.__class__.__name__)
 
-    def _parse_lrc(self, lyrics):
-        pattern = re.compile(r"\[(\d+):(\d+\.\d+)\](.*)")
-        parsed = []
-        for line in lyrics.splitlines():
-            match = pattern.match(line)
-            if match:
-                minutes = int(match.group(1))
-                seconds = float(match.group(2))
-                timestamp = int((minutes * 60 + seconds) * 1000)
-                text = match.group(3).strip()
-                parsed.append((timestamp, text))
-        return sorted(parsed)
-
-    def _simulate_timing(self, raw_lyrics):
-        lines = raw_lyrics.split("\n")
-        return [
-            (i * 4000, line.strip()) for i, line in enumerate(lines) if line.strip()
-        ]
-
-    def _fetch_from_lrclib(self, song, artist, retries=3):
-        url = f"https://api.lrclib.net/api/get?track_name={song}&artist_name={artist}"
-        for attempt in range(retries):
-            try:
-                response = requests.get(url, timeout=5)
-                response.raise_for_status()
-                return response.json()
-            except RequestException as e:
-                if attempt == retries - 1:
-                    print(f"LRC sync failed: {e}")
-                    return None
-                time.sleep(1)
-
-    def start(self, song_name, artist_name):
-        self.current_display = Text(" Loading lyrics...", style="cyan")
+    def start(self, track_name, artist_name, album_name="", duration_ms=0):
         self.current_index = 0
-
-        lrc = self._fetch_from_lrclib(song_name, artist_name)
-        if lrc and (lrc.get("syncedLyrics") or lrc.get("rawLyrics")):
-            lyrics = lrc.get("syncedLyrics") or lrc.get("rawLyrics")
-            self.lyrics_lines = self._parse_lrc(lyrics)
-        else:
-            fallback = get_lyrics(song_name, artist_name)
-            if fallback:
-                self.lyrics_lines = self._simulate_timing(fallback)
+        try:
+            ts, ls = self.fetch_lyrics(
+                artist_name=artist_name,
+                track_name=track_name,
+                album_name=album_name,
+                duration_ms=duration_ms,
+            )
+            if ts and ls:
+                self.timestamps, self.lines = ts, ls
             else:
-                self.current_display = Text(" No lyrics found.", style="red")
-                self.lyrics_lines = []
+                raise ValueError("Empty LRC result")
+        except Exception as e:
+            self.logger.warning(f"No lyrics for '{track_name}' by '{artist_name}': {e}")
+            self.timestamps = [0]
+            self.lines = ["[dim]No lyrics found[/dim]"]
+
+    def fetch_lyrics(self, artist_name, track_name, album_name, duration_ms):
+        # skip any sub‑one‑second durations
+        if duration_ms < 1000:
+            self.logger.debug("duration_ms < 1000 (%d), skipping fetch", duration_ms)
+            return [], []
+
+        # convert to seconds and clamp
+        secs = max(1, min(duration_ms // 1000, 3600))
+        params = {
+            "artist_name": artist_name,
+            "track_name": track_name,
+            "album_name": album_name,
+            "duration": secs,
+        }
+        self.logger.debug("Requesting LRC: %s with %s", self.API_URL, params)
+
+        try:
+            resp = requests.get(self.API_URL, params=params, timeout=5)
+            self.logger.debug("HTTP %s %s", resp.status_code, resp.url)
+            snippet = resp.text.strip().splitlines()[:3]
+            self.logger.debug("Body snippet:\n%s", "\n".join(snippet))
+
+            resp.raise_for_status()
+            text = resp.text.strip()
+
+            # if JSON, extract the syncedLyrics field
+            if text.startswith("{"):
+                data = json.loads(text)
+                lrc_text = data.get("syncedLyrics") or data.get("plainLyrics", "")
+                if not lrc_text:
+                    raise ValueError("No 'syncedLyrics' in JSON response")
+            else:
+                lrc_text = text
+
+            return self.parse_lrc(lrc_text)
+
+        except requests.RequestException as err:
+            self.logger.error("LRC fetch error: %s", err)
+            return [], []
+        except json.JSONDecodeError:
+            # not JSON, fall back to raw LRC parse
+            return self.parse_lrc(resp.text)
+
+    def parse_lrc(self, lrc_text):
+        """
+        Parse LRC “[MM:SS.ss] line” into ([ms…], [str…]).
+        """
+        pattern = re.compile(r"\[(\d+):(\d+\.\d+)\](.*)")
+        ts, lines = [], []
+        for line in lrc_text.splitlines():
+            m = pattern.match(line)
+            if not m:
+                continue
+            mins = int(m.group(1))
+            secs = float(m.group(2))
+            ts.append(int((mins * 60 + secs) * 1000))
+            lines.append(m.group(3).strip())
+        return ts, lines
 
     def sync(self, progress_ms):
-        lines = self.lyrics_lines
-        if not lines:
-            return
-
-        for i in range(len(lines)):
-            if i + 1 >= len(lines) or progress_ms < lines[i + 1][0]:
-                self.current_index = i
-                break
-
-        start = max(0, self.current_index - 4)
-        end = min(len(lines), start + 8)
-        chunk = lines[start:end]
-
-        display = Text()
-        for idx, (ts, line) in enumerate(chunk):
-            if start + idx == self.current_index:
-                display.append(f"→ {line}\n", style="bold green")
-            else:
-                display.append(f"  {line}\n", style="dim")
-
-        self.current_display = display
+        while (
+            self.current_index + 1 < len(self.timestamps)
+            and progress_ms >= self.timestamps[self.current_index + 1]
+        ):
+            self.current_index += 1
 
     def get_text(self):
-        return self.current_display
+        return self.lines[self.current_index] if self.lines else ""

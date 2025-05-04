@@ -1,8 +1,6 @@
 import threading
-import shutil
 import time
 import os
-import subprocess
 import json
 from dotenv import load_dotenv
 from time import sleep
@@ -10,7 +8,11 @@ from time import sleep
 from gpt_dj import RadioFreeDJ
 from spotify_utils import SpotifyController
 from upnext import UpNextManager
+from genius_utils import get_lyrics
+from lyrics_sync import LyricsSyncManager
 
+from queue import Queue
+from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
 from rich.console import Console
 from rich.panel import Panel
 from rich.layout import Layout
@@ -29,6 +31,7 @@ show_lyrics = True
 show_gpt_log = True
 command_log_buffer = []
 notifications = []
+user_input_queue = Queue()
 
 if not api_key:
     raise ValueError("OPENAI_API_KEY is not set in .env!")
@@ -36,58 +39,11 @@ if not api_key:
 gpt_dj = RadioFreeDJ(api_key=api_key, active_model=gpt_model, log_path=log_path)
 spotify_controller = SpotifyController()
 upnext = UpNextManager(gpt_dj, spotify_controller)
+lyrics_manager = LyricsSyncManager(spotify_controller)
 
 console = Console()
-lyrics_proc = None
-lyrics_thread = None
-lyrics_text = Text(" Waiting for lyrics...", style="cyan")
 last_song = (None, None)
-
 gpt_log_buffer = []  # Scrollback buffer for GPT logs
-
-
-# ─────────────────────────────────────────────────────────────
-# Lyrics Streaming
-# ─────────────────────────────────────────────────────────────
-
-
-def stream_lyrics():
-    global lyrics_proc, lyrics_text
-    try:
-        for line in iter(lyrics_proc.stdout.readline, b""):
-            decoded = line.decode("utf-8").strip()
-            if decoded:
-                lyrics_text = Text(f" {decoded}", style="bold cyan")
-    except Exception as e:
-        console.print(f"[red] Lyrics stream error:[/red] {e}")
-
-
-def start_lyrics_process():
-    global lyrics_proc, lyrics_thread, lyrics_text
-    stop_lyrics_process()
-
-    lyrics_path = shutil.which("lyricstify")
-    if not lyrics_path:
-        console.print("[bold red] 'lyricstify' not found in PATH.[/bold red]")
-        return
-
-    lyrics_proc = subprocess.Popen(
-        [lyrics_path, "pipe"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
-    )
-
-    lyrics_text = Text(" Fetching lyrics...", style="cyan")
-    lyrics_thread = threading.Thread(target=stream_lyrics, daemon=True)
-    lyrics_thread.start()
-
-
-def stop_lyrics_process():
-    global lyrics_proc
-    if lyrics_proc and lyrics_proc.poll() is None:
-        lyrics_proc.terminate()
-        try:
-            lyrics_proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            lyrics_proc.kill()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -106,6 +62,15 @@ def notify(message: str, style="bold yellow"):
 # ─────────────────────────────────────────────────────────────
 
 
+def render_progress_bar(progress_ms, duration_ms):
+    percent = min(progress_ms / duration_ms, 1.0) if duration_ms else 0
+    bar_length = 30
+    filled = int(bar_length * percent)
+    empty = bar_length - filled
+    bar = f"[cyan][{'█' * filled}{'░' * empty}][/cyan]"
+    return f"{bar} {int(percent * 100)}%"
+
+
 def create_layout(song_name, artist_name):
     layout = Layout()
     layout.split(
@@ -117,61 +82,69 @@ def create_layout(song_name, artist_name):
     layout["lower"].split_row(
         Layout(name="menu", ratio=1),
         Layout(name="gpt", ratio=2),
-        Layout(name="cmds", ratio=1),
+        Layout(name="queue", ratio=1),
     )
 
     notif_text = Text()
     for note in notifications[-3:]:
         notif_text.append(note + "\n")
 
+    track_info = spotify_controller.sp.current_playback()
+    progress = track_info.get("progress_ms", 0) if track_info else 0
+    duration = track_info.get("item", {}).get("duration_ms", 0) if track_info else 0
+    elapsed = time.strftime("%M:%S", time.gmtime(progress // 1000))
+    total = time.strftime("%M:%S", time.gmtime(duration // 1000))
+    timecode = f"{elapsed} / {total}"
+    progress_bar = render_progress_bar(progress, duration)
+    lyrics_manager.sync(progress)  # ensure real-time display updates
+
     layout["header"].update(
         Panel(
-            f"[bold green] Now Playing:[/bold green] [yellow]{song_name}[/yellow] by [cyan]{artist_name}[/cyan]",
-            title="RadioFreeDJ",
+            f"[bold green] Now Playing:[/bold green] [yellow]{song_name}[/yellow] by [cyan]{artist_name}[/cyan]  [dim]| {timecode}[/dim]",
+            title=f"RadioFreeDJ {progress_bar}",
             subtitle=notif_text.plain if notif_text else "",
             subtitle_align="right",
         )
     )
 
-    if show_lyrics:
-        layout["lyrics"].update(
-            Panel(lyrics_text, title=" Lyrics", border_style="cyan")
-        )
-    else:
-        layout["lyrics"].update(
-            Panel(
-                "[dim]Lyrics hidden (press [bold]l[/bold] to show)[/dim]",
-                title=" Lyrics",
-                border_style="cyan",
-            )
-        )
+    lyrics_panel = Panel(
+        lyrics_manager.get_text()
+        if show_lyrics
+        else "[dim]Lyrics hidden (press [bold]l[/bold] to show)[/dim]",
+        title=" Lyrics",
+        border_style="cyan",
+    )
+    layout["lyrics"].update(lyrics_panel)
 
     layout["menu"].update(
         Panel(get_menu_text(), title="  Main Menu", border_style="green")
     )
 
-    if show_gpt_log:
-        gpt_panel_text = Text()
-        for _, response in gpt_log_buffer[-5:]:
-            gpt_panel_text.append(Text(" " + response + "\n\n", style="cyan"))
-        layout["gpt"].update(
-            Panel(gpt_panel_text, title=" GPT Log", border_style="magenta")
-        )
-    else:
-        layout["gpt"].update(
-            Panel(
-                "[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]",
-                title=" GPT Log",
-                border_style="magenta",
+    gpt_panel = Panel(
+        Text(" " + "\n\n ".join(r for _, r in gpt_log_buffer[-5:]), style="cyan")
+        if show_gpt_log
+        else "[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]",
+        title=" GPT Log",
+        border_style="magenta",
+    )
+    layout["gpt"].update(gpt_panel)
+
+    queue_status = Text.from_markup(
+        f"[bold]Mode:[/bold] {upnext.mode}\n"
+        f"[bold]Queued Songs:[/bold] {len(upnext.queue)}\n"
+    )
+    if upnext.queue:
+        next_up = upnext.queue[0]
+        queue_status.append(
+            Text.from_markup(
+                f"[bold]Next Up:[/bold] {next_up['track_name']} - {next_up['artist_name']}"
             )
         )
+    else:
+        queue_status.append(Text.from_markup("[dim]No songs queued.[/dim]"))
 
-    command_panel_text = Text()
-    for cmd in command_log_buffer[-5:]:
-        command_panel_text.append(Text(f"> {cmd}\n", style="bold green"))
-
-    layout["cmds"].update(
-        Panel(command_panel_text, title=" Commands", border_style="blue")
+    layout["queue"].update(
+        Panel(queue_status, title=" UpNext Queue", border_style="blue")
     )
 
     return layout
@@ -179,21 +152,19 @@ def create_layout(song_name, artist_name):
 
 def get_menu_text():
     mode_label = "(Playlist)" if upnext.mode == "playlist" else "(Smart)"
-
-    return Text.from_markup(
-        "\n".join(
-            [
-                f"[bold]1.[/bold] Auto-play from UpNext queue {mode_label}",
-                "[bold]2.[/bold] Queue 1 recommended song",
-                "[bold]3.[/bold] Queue 10 recommendations",
-                "[bold]4.[/bold] Queue 15-song playlist",
-                "[bold]5.[/bold] Queue 10-song theme playlist",
-                "[bold]6.[/bold] Get info on current song",
-                "[bold]t.[/bold] Toggle playlist mode",
-                "[bold]0.[/bold] Quit",
-            ]
-        )
-    )
+    menu = [
+        f"[bold]1.[/bold] Auto-play from UpNext queue {mode_label}",
+        "[bold]2.[/bold] Queue 1 recommended song",
+        "[bold]3.[/bold] Queue 10 recommendations",
+        "[bold]4.[/bold] Queue 15-song playlist",
+        "[bold]5.[/bold] Queue 10-song theme playlist",
+        "[bold]6.[/bold] Get info on current song",
+        "[bold]t.[/bold] Toggle playlist mode",
+        "[bold]0.[/bold] Quit",
+    ]
+    if command_log_buffer:
+        menu.append(f"\n[bold]Last:[/bold] {command_log_buffer[-1]}")
+    return Text.from_markup("\n".join(menu))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -299,46 +270,65 @@ def song_insights(song_name, artist_name):
 # ─────────────────────────────────────────────────────────────
 
 
+def read_input():
+    while True:
+        choice = Prompt.ask("[bold green]  Select an option[/bold green]").strip()
+        user_input_queue.put(choice)
+
+
+input_thread = threading.Thread(target=read_input, daemon=True)
+input_thread.start()
+
+
 def main():
     global last_song, show_lyrics, show_gpt_log
+
     try:
-        while True:
+        console.print("[green]🚀 Starting FreeRadioDJ...[/green]\n")
+
+        song_name, artist_name = spotify_controller.get_current_song()
+        while not song_name:
+            console.print(
+                "[yellow]⏳ Waiting for Spotify to start playback...[/yellow]"
+            )
+            time.sleep(3)
             song_name, artist_name = spotify_controller.get_current_song()
 
-            if not song_name or not artist_name:
-                console.print(
-                    "[yellow]Waiting for Spotify to start playback...[/yellow]"
-                )
-                time.sleep(5)
-                continue
+        last_song = (song_name, artist_name)
+        lyrics_manager.start(song_name, artist_name)
 
-            if (song_name, artist_name) != last_song:
-                stop_lyrics_process()
-                last_song = (song_name, artist_name)
-                start_lyrics_process()
+        console.print(
+            "[dim]Press [bold]l[/bold] to toggle lyrics, "
+            "[bold]g[/bold] for GPT log, or enter menu option (0–6, t).[/dim]"
+        )
 
-            with Live(refresh_per_second=2, screen=True) as live:
-                while True:
-                    new_song, new_artist = spotify_controller.get_current_song()
+        with Live(refresh_per_second=2, screen=True) as live:
+            while True:
+                track_info = spotify_controller.sp.current_playback()
+                if not track_info or not track_info.get("item"):
+                    time.sleep(1)
+                    continue
 
-                    if not new_song or not new_artist:
-                        time.sleep(5)
-                        continue
+                current_song = track_info["item"]["name"]
+                current_artist = track_info["item"]["artists"][0]["name"]
+                progress = track_info.get("progress_ms", 0)
 
-                    if (new_song, new_artist) != last_song:
-                        stop_lyrics_process()
-                        last_song = (new_song, new_artist)
-                        start_lyrics_process()
-                        notify(f"New track: {new_song} by {new_artist}", style="cyan")
-
-                    live.update(create_layout(new_song, new_artist))
-
-                    console.print(
-                        "[dim]Press [bold]l[/bold] to toggle lyrics, [bold]g[/bold] for GPT log, or enter menu option (0-6, t).[/dim]"
+                # Track change detected
+                if (current_song, current_artist) != last_song:
+                    last_song = (current_song, current_artist)
+                    notify(
+                        f"🔄 Track changed: {current_song} by {current_artist}",
+                        style="cyan",
                     )
-                    choice = Prompt.ask(
-                        "[bold green]  Select an option[/bold green]"
-                    ).strip()
+                    lyrics_manager.start(current_song, current_artist)
+
+                # Sync lyrics and update live layout
+                lyrics_manager.sync(progress)
+                live.update(create_layout(current_song, current_artist))
+
+                # Handle user input if any
+                if not user_input_queue.empty():
+                    choice = user_input_queue.get()
 
                     command_labels = {
                         "1": "Auto-DJ",
@@ -366,30 +356,33 @@ def main():
                     elif choice == "0":
                         raise KeyboardInterrupt
                     elif choice == "1":
-                        upnext.auto_dj_transition(new_song, new_artist)
+                        upnext.auto_dj_transition(current_song, current_artist)
                     elif choice == "2":
-                        upnext.queue_one_song(new_song, new_artist)
+                        upnext.queue_one_song(current_song, current_artist)
                     elif choice == "3":
-                        upnext.queue_ten_songs(new_song, new_artist)
+                        upnext.queue_ten_songs(current_song, current_artist)
                     elif choice == "4":
-                        upnext.queue_playlist(new_song, new_artist)
+                        upnext.queue_playlist(current_song, current_artist)
                     elif choice == "5":
                         upnext.queue_theme_playlist()
                     elif choice == "6":
-                        upnext.song_insight(new_song, new_artist)
+                        upnext.song_insight(current_song, current_artist)
                     elif choice == "t":
                         upnext.toggle_playlist_mode()
                         notify(
-                            f"Queue mode: {'Themed' if upnext.playlist_mode else 'Smart'}",
+                            f"Queue mode: {'Playlist' if upnext.mode == 'playlist' else 'Smart'}",
                             style="magenta",
                         )
                     else:
-                        notify("Invalid menu option.", style="red")
+                        notify("❌ Invalid menu option.", style="red")
+
+                time.sleep(0.5)
 
     except KeyboardInterrupt:
-        console.print("\n[bold red] Shutting down FreeRadio...[/bold red]")
-    finally:
-        stop_lyrics_process()
+        console.print("\n[bold red]⏹ Exiting FreeRadioDJ... Goodbye![/bold red]")
+    except Exception as e:
+        console.print(f"\n[red]❌ Unexpected error in main loop: {e}[/red]")
+        console.print("\n[bold red]⏹ Exiting FreeRadioDJ... Goodbye![/bold red]")
 
 
 if __name__ == "__main__":

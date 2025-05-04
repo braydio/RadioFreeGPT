@@ -8,6 +8,10 @@ from rich.prompt import Prompt
 
 
 class UpNextManager:
+    @property
+    def playlist_mode(self):
+        return self.mode == "playlist"
+
     def __init__(self, gpt_dj, spotify_controller):
         self.gpt_dj = gpt_dj
         self.spotify = spotify_controller
@@ -16,7 +20,7 @@ class UpNextManager:
 
         self.console = Console()
 
-    def toggle_mode(self):
+    def toggle_playlist_mode(self):
         self.mode = "playlist" if self.mode == "smart" else "smart"
         self.console.print(
             Panel(

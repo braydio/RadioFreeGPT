@@ -1,0 +1,7 @@
+__pycache__/
+gpt_debug.log
+requests.log
+
+*.pyc
+*.log
+.env

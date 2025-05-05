@@ -1,3 +1,4 @@
+# gpt_dj.py
 import os
 import openai
 from openai import OpenAI
@@ -22,7 +23,7 @@ class RadioFreeDJ:
     ):
         load_dotenv()
         # Debug log setup
-        debug_log_path = os.getenv("DEBUG_LOG_PATH", "gpt_debug.log")
+        debug_log_path = os.getenv("DEBUG_LOG_PATH", "app_debug.log")
         self.logger = logging.getLogger("RadioFreeDJ")
         self.logger.setLevel(logging.DEBUG)
         handler = logging.FileHandler(debug_log_path)
@@ -69,8 +70,17 @@ class RadioFreeDJ:
             else:
                 response = self.ask_openai(prompt)
 
+            # Debug logging
             self.logger.debug(f"Prompt sent:\n{prompt}")
             self.logger.debug(f"Response received:\n{response}")
+
+            # Invoke callback to push into gpt_log_buffer, if provided
+            if self.on_response:
+                try:
+                    self.on_response(prompt, response)
+                except Exception as cb_err:
+                    self.logger.error(f"on_response callback error: {cb_err}")
+
             return response
 
         except Exception as e:
@@ -80,12 +90,10 @@ class RadioFreeDJ:
 
     def ask_openai(self, prompt):
         client = OpenAI(api_key=self.api_key)
-
         response = client.chat.completions.create(
             model=self.active_model,
             messages=[{"role": "user", "content": prompt}],
         )
-
         return response.choices[0].message.content.strip()
 
     def ask_local_llm(self, prompt):

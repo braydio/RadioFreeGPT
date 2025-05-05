@@ -26,7 +26,11 @@ from rich.text import Text
 load_dotenv()
 
 # === Initialize UI State ===
+
 show_lyrics = True
+lyrics_view_mode = "chunk"
+lyrics_cursor = 0
+
 show_gpt_log = True
 command_log_buffer = []
 notifications = []
@@ -138,21 +142,36 @@ def create_layout(song_name, artist_name):
 
     layout["header"].update(
         Panel(
-            f"[bold green] Now Playing:[/bold green] [yellow]{song_name}[/yellow] by [cyan]{artist_name}[/cyan]  [dim]| {timecode}[/dim]",
+            f"[bold green]  Now Playing:[/bold green] [yellow]{song_name}[/yellow] by [cyan]{artist_name}[/cyan]  [dim]| {timecode}[/dim]",
             title=f"RadioFreeDJ {progress_bar}",
             subtitle=notif_text.plain if notif_text else "",
             subtitle_align="right",
         )
     )
 
-    lyrics_panel = Panel(
-        lyrics_manager.get_text()
-        if show_lyrics
-        else "[dim]Lyrics hidden (press [bold]l[/bold] to show)[/dim]",
-        title=" Lyrics",
-        border_style="cyan",
-    )
-    layout["lyrics"].update(lyrics_panel)
+    # === Lyrics Panel ===
+    panel_text = Text()
+    lines = lyrics_manager.lines
+    idx = lyrics_manager.current_index
+
+    if lyrics_view_mode == "chunk":
+        # show a window of 8 lines around the current index
+        start = max(0, idx - 3)
+        window = lines[start : start + 8]
+        for i, line in enumerate(window, start=start):
+            if i == idx:
+                panel_text.append(f"> {line}\n", style="reverse bold yellow")
+            else:
+                panel_text.append(f"  {line}\n")
+    else:
+        # full view: show all lyrics, with a movable cursor
+        for i, line in enumerate(lines):
+            if i == lyrics_cursor:
+                panel_text.append(f"> {line}\n", style="reverse bold yellow")
+            else:
+                panel_text.append(f"  {line}\n")
+
+    layout["lyrics"].update(Panel(panel_text, title=" Lyrics", border_style="cyan"))
 
     layout["menu"].update(
         Panel(get_menu_text(), title="  Main Menu", border_style="green")
@@ -166,7 +185,7 @@ def create_layout(song_name, artist_name):
                     f"[bold cyan]{prompt}[/bold cyan]\n", style="cyan"
                 )
                 for line in parsed:
-                    gpt_panel_text.append(f"   {line}\n", style="green")
+                    gpt_panel_text.append(f"   {line}\n", style="green")
             else:
                 gpt_panel_text.append(
                     f"[bold cyan]{prompt}[/bold cyan]\n{response}\n\n", style="cyan"
@@ -199,6 +218,33 @@ def create_layout(song_name, artist_name):
     )
 
     return layout
+
+
+def render_gpt_log() -> Text:
+    """
+    Build and return the Text for the GPT Log panel.
+    Shows the last 5 (prompt, response) pairs from gpt_log_buffer,
+    or a hidden‐message when show_gpt_log is False.
+    """
+    panel_text = Text()
+    if show_gpt_log:
+        # grab only the last 5 entries
+        for prompt, response in gpt_log_buffer[-5:]:
+            parsed = parse_response(response)
+
+            # always show the user’s prompt in cyan
+            panel_text.append(f"[bold cyan]{prompt}[/bold cyan]\n", style="cyan")
+
+            if parsed:
+                # for JSON‐parsed song recommendations show each with a note icon
+                for line in parsed:
+                    panel_text.append(f"   {line}\n", style="green")
+            else:
+                # otherwise dump the raw reply
+                panel_text.append(f"{response}\n\n", style="cyan")
+    else:
+        panel_text.append("[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]")
+    return panel_text
 
 
 def get_menu_text():
@@ -250,10 +296,10 @@ def recommend_next_ten_songs(song_name, artist_name):
     log_gpt(prompt, response)
     if response:
         console.print(
-            Panel(response, title=" Top 10 Recommendations", border_style="magenta")
+            Panel(response, title="  Top 10 Recommendations", border_style="magenta")
         )
     else:
-        console.print("[bold red] No response received for top 10.[/bold red]")
+        console.print("[bold red]  No response received for top 10.[/bold red]")
 
 
 def create_playlist(song_name, artist_name):
@@ -265,10 +311,10 @@ def create_playlist(song_name, artist_name):
     log_gpt(prompt, response)
     if response:
         console.print(
-            Panel(response, title=" FreeRadio Playlist", border_style="magenta")
+            Panel(response, title="  FreeRadio Playlist", border_style="magenta")
         )
     else:
-        console.print("[bold red] Playlist creation failed.[/bold red]")
+        console.print("[bold red]  Playlist creation failed.[/bold red]")
 
 
 def theme_based_playlist():
@@ -370,7 +416,6 @@ def main():
 
         with Live(refresh_per_second=2, screen=True) as live:
             while True:
-                # — Safely poll Spotify
                 try:
                     playback = spotify_controller.sp.current_playback()
                 except ReadTimeout:
@@ -428,7 +473,74 @@ def main():
                 # Handle user input
                 if not user_input_queue.empty():
                     choice = user_input_queue.get()
-                    # ... your existing input-handling logic here ...
+
+                    # Map choices to human labels for the command log
+                    command_labels = {
+                        "1": "Auto-DJ",
+                        "2": "Queue One Song",
+                        "3": "Queue Ten Songs",
+                        "4": "Queue Playlist",
+                        "5": "Queue Theme Playlist",
+                        "6": "Song Insight",
+                        "t": "Toggle Mode",
+                        "0": "Quit",
+                        "l": "Toggle Lyrics View",
+                        "g": "Toggle GPT Log",
+                        "j": "Cursor Down",
+                        "k": "Cursor Up",
+                    }
+                    command_log_buffer.append(
+                        f"{choice} → {command_labels.get(choice, 'Unknown')}"
+                    )
+                    if len(command_log_buffer) > 50:
+                        command_log_buffer.pop(0)
+
+                    # ─── Lyric‐view controls ───
+                    if choice == "l":
+                        # Toggle between chunk and full lyrics view
+                        global lyrics_view_mode, lyrics_cursor
+                        if lyrics_view_mode == "chunk":
+                            lyrics_view_mode = "full"
+                            lyrics_cursor = lyrics_manager.current_index
+                        else:
+                            lyrics_view_mode = "chunk"
+
+                    # ─── GPT log toggle ───
+                    elif choice == "g":
+                        global show_gpt_log
+                        show_gpt_log = not show_gpt_log
+
+                    # ─── In full‐view, scroll with j/k ───
+                    elif lyrics_view_mode == "full" and choice == "j":
+                        lyrics_cursor = min(
+                            lyrics_cursor + 1, len(lyrics_manager.lines) - 1
+                        )
+                    elif lyrics_view_mode == "full" and choice == "k":
+                        lyrics_cursor = max(lyrics_cursor - 1, 0)
+
+                    # ─── Core menu commands ───
+                    elif choice == "0":
+                        raise KeyboardInterrupt
+                    elif choice == "1":
+                        upnext.auto_dj_transition(current_song, current_artist)
+                    elif choice == "2":
+                        upnext.queue_one_song(current_song, current_artist)
+                    elif choice == "3":
+                        upnext.queue_ten_songs(current_song, current_artist)
+                    elif choice == "4":
+                        upnext.queue_playlist(current_song, current_artist)
+                    elif choice == "5":
+                        upnext.queue_theme_playlist()
+                    elif choice == "6":
+                        upnext.song_insight(current_song, current_artist)
+                    elif choice == "t":
+                        upnext.toggle_playlist_mode()
+                        notify(
+                            f"Queue mode: {'Playlist' if upnext.mode == 'playlist' else 'Smart'}",
+                            style="magenta",
+                        )
+                    else:
+                        notify("❌ Invalid menu option.", style="red")
 
                 time.sleep(0.5)
 

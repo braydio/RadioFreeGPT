@@ -22,11 +22,15 @@ from rich.live import Live
 from rich.prompt import Prompt
 from rich.text import Text
 
-# === Load Environment Variables ==
+# === Load Environment Variables ===
 load_dotenv()
 
-# === Initialize UI State ===
+# === Load Prompt Templates ===
+prompts_path = os.path.join(os.path.dirname(__file__), "prompts.json")
+with open(prompts_path, "r", encoding="utf-8") as f:
+    prompt_templates = json.load(f)
 
+# === Initialize UI State ===
 show_lyrics = True
 lyrics_view_mode = "chunk"
 lyrics_cursor = 0
@@ -55,12 +59,12 @@ def log_gpt(prompt: str, response: str):
         gpt_log_buffer.pop(0)
 
 
-# === Instantiate RadioFreeDJ with on_response callback ===
+# === Instantiate RadioFreeDJ ===
 gpt_dj = RadioFreeDJ(
     api_key=api_key,
     active_model=gpt_model,
     log_path=log_path,
-    on_response=log_gpt,  # ← every ask() now auto‑logs into gpt_log_buffer
+    on_response=log_gpt,
 )
 
 # === Other Components ===
@@ -83,8 +87,28 @@ def notify(message: str, style="bold yellow"):
 
 
 # ─────────────────────────────────────────────────────────────
-# Rich UI Layout
+# Rich UI Layout & Helpers
 # ─────────────────────────────────────────────────────────────
+
+
+def render_queue_status() -> Text:
+    """
+    Build and return the Text for the UpNext queue panel.
+    """
+    queue_status = Text.from_markup(
+        f"[bold]Mode:[/bold] {upnext.mode}\n"
+        f"[bold]Queued Songs:[/bold] {len(upnext.queue)}\n"
+    )
+    if upnext.queue:
+        next_up = upnext.queue[0]
+        queue_status.append(
+            Text.from_markup(
+                f"[bold]Next Up:[/bold] {next_up['track_name']} - {next_up['artist_name']}"
+            )
+        )
+    else:
+        queue_status.append(Text.from_markup("[dim]No songs queued.[/dim]"))
+    return queue_status
 
 
 def parse_response(response):
@@ -98,7 +122,6 @@ def parse_response(response):
             return [f"{song_data['track_name']} by {song_data['artist_name']}"]
     except json.JSONDecodeError:
         pass
-
     pattern = r"\d+\.\s*(.+?)\s+by\s+(.+)"
     matches = re.findall(pattern, response, re.IGNORECASE)
     return [f"{title} by {artist}" for title, artist in matches] if matches else []
@@ -113,150 +136,32 @@ def render_progress_bar(progress_ms, duration_ms):
     return f"{bar} {int(percent * 100)}%"
 
 
-def create_layout(song_name, artist_name):
-    layout = Layout()
-    layout.split(
-        Layout(name="header", size=3),
-        Layout(name="lyrics", ratio=2),
-        Layout(name="lower", ratio=3),
-    )
-
-    layout["lower"].split_row(
-        Layout(name="menu", ratio=1),
-        Layout(name="gpt", ratio=2),
-        Layout(name="queue", ratio=1),
-    )
-
-    notif_text = Text()
-    for note in notifications[-3:]:
-        notif_text.append(note + "\n")
-
-    track_info = spotify_controller.sp.current_playback()
-    progress = track_info.get("progress_ms", 0) if track_info else 0
-    duration = track_info.get("item", {}).get("duration_ms", 0) if track_info else 0
-    elapsed = time.strftime("%M:%S", time.gmtime(progress // 1000))
-    total = time.strftime("%M:%S", time.gmtime(duration // 1000))
-    timecode = f"{elapsed} / {total}"
-    progress_bar = render_progress_bar(progress, duration)
-    lyrics_manager.sync(progress)  # ensure real-time display updates
-
-    layout["header"].update(
-        Panel(
-            f"[bold green]  Now Playing:[/bold green] [yellow]{song_name}[/yellow] by [cyan]{artist_name}[/cyan]  [dim]| {timecode}[/dim]",
-            title=f"RadioFreeDJ {progress_bar}",
-            subtitle=notif_text.plain if notif_text else "",
-            subtitle_align="right",
-        )
-    )
-
-    # === Lyrics Panel ===
-    panel_text = Text()
-    lines = lyrics_manager.lines
-    idx = lyrics_manager.current_index
-
-    if lyrics_view_mode == "chunk":
-        # show a window of 8 lines around the current index
-        start = max(0, idx - 3)
-        window = lines[start : start + 8]
-        for i, line in enumerate(window, start=start):
-            if i == idx:
-                panel_text.append(f"> {line}\n", style="reverse bold yellow")
-            else:
-                panel_text.append(f"  {line}\n")
-    else:
-        # full view: show all lyrics, with a movable cursor
-        for i, line in enumerate(lines):
-            if i == lyrics_cursor:
-                panel_text.append(f"> {line}\n", style="reverse bold yellow")
-            else:
-                panel_text.append(f"  {line}\n")
-
-    layout["lyrics"].update(Panel(panel_text, title=" Lyrics", border_style="cyan"))
-
-    layout["menu"].update(
-        Panel(get_menu_text(), title="  Main Menu", border_style="green")
-    )
-    gpt_panel_text = Text()
-    if show_gpt_log:
-        for prompt, response in gpt_log_buffer[-5:]:
-            parsed = parse_response(response)
-            if parsed:
-                gpt_panel_text.append(
-                    f"[bold cyan]{prompt}[/bold cyan]\n", style="cyan"
-                )
-                for line in parsed:
-                    gpt_panel_text.append(f"   {line}\n", style="green")
-            else:
-                gpt_panel_text.append(
-                    f"[bold cyan]{prompt}[/bold cyan]\n{response}\n\n", style="cyan"
-                )
-    else:
-        gpt_panel_text.append(
-            "[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]"
-        )
-
-    layout["gpt"].update(
-        Panel(gpt_panel_text, title=" GPT Log", border_style="magenta")
-    )
-
-    queue_status = Text.from_markup(
-        f"[bold]Mode:[/bold] {upnext.mode}\n"
-        f"[bold]Queued Songs:[/bold] {len(upnext.queue)}\n"
-    )
-    if upnext.queue:
-        next_up = upnext.queue[0]
-        queue_status.append(
-            Text.from_markup(
-                f"[bold]Next Up:[/bold] {next_up['track_name']} - {next_up['artist_name']}"
-            )
-        )
-    else:
-        queue_status.append(Text.from_markup("[dim]No songs queued.[/dim]"))
-
-    layout["queue"].update(
-        Panel(queue_status, title="  UpNext Queue", border_style="blue")
-    )
-
-    return layout
-
-
 def render_gpt_log() -> Text:
     """
     Build and return the Text for the GPT Log panel.
-    Shows the last 5 (prompt, response) pairs from gpt_log_buffer,
-    or a hidden‐message when show_gpt_log is False.
+    Shows only the latest GPT response (not the prompt), replacing the view each time.
     """
     panel_text = Text()
-    if show_gpt_log:
-        # grab only the last 5 entries
-        for prompt, response in gpt_log_buffer[-5:]:
-            parsed = parse_response(response)
-
-            # always show the user’s prompt in cyan
-            panel_text.append(f"[bold cyan]{prompt}[/bold cyan]\n", style="cyan")
-
-            if parsed:
-                # for JSON‐parsed song recommendations show each with a note icon
-                for line in parsed:
-                    panel_text.append(f"   {line}\n", style="green")
-            else:
-                # otherwise dump the raw reply
-                panel_text.append(f"{response}\n\n", style="cyan")
+    if show_gpt_log and gpt_log_buffer:
+        # extract only the latest response
+        _, latest_response = gpt_log_buffer[-1]
+        # display the response, styled appropriately
+        panel_text.append(latest_response, style="cyan")
     else:
         panel_text.append("[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]")
     return panel_text
 
 
 def get_menu_text():
-    mode_label = "(Playlist)" if upnext.mode == "playlist" else "(Smart)"
+    mode_label = "Playlist" if upnext.mode == "playlist" else "Smart"
     menu = [
-        f"[bold]1.[/bold] Auto-play from UpNext queue {mode_label}",
+        "[bold]1.[/bold] 󰼛 Tune in to RadioFree󰲿 with DJ gpt-4o-mini 󱚣 ",
         "[bold]2.[/bold] Queue 1 recommended song",
         "[bold]3.[/bold] Queue 10 recommendations",
         "[bold]4.[/bold] Queue 15-song playlist",
         "[bold]5.[/bold] Queue 10-song theme playlist",
         "[bold]6.[/bold] Get info on current song",
-        "[bold]t.[/bold] Toggle playlist mode",
+        f"[bold]t.[/bold] Toggle playback mode ({mode_label} Mode) ",
         "[bold]0.[/bold] Quit",
     ]
     if command_log_buffer:
@@ -264,96 +169,158 @@ def get_menu_text():
     return Text.from_markup("\n".join(menu))
 
 
+def create_layout(song_name, artist_name):
+    layout = Layout()
+    layout.split(
+        Layout(name="header", size=3),
+        Layout(name="lyrics", ratio=2),
+        Layout(name="lower", ratio=3),
+    )
+    layout["lower"].split_row(
+        Layout(name="menu", ratio=1),
+        Layout(name="gpt", ratio=2),
+        Layout(name="queue", ratio=1),
+    )
+    layout["queue"].update(
+        Panel(render_queue_status(), title="  UpNext Queue", border_style="blue")
+    )
+    # Header
+    track_info = spotify_controller.sp.current_playback()
+    progress = track_info.get("progress_ms", 0) if track_info else 0
+    duration = track_info.get("item", {}).get("duration_ms", 0) if track_info else 0
+    elapsed = time.strftime("%M:%S", time.gmtime(progress // 1000))
+    total = time.strftime("%M:%S", time.gmtime(duration // 1000))
+    timecode = f"{elapsed} / {total}"
+    progress_bar = render_progress_bar(progress, duration)
+    notif_text = Text("\n".join([n.plain for n in notifications[-3:]]))
+    layout["header"].update(
+        Panel(
+            f"[bold green]  Now Playing:[/bold green] [yellow]{song_name}[/yellow] by [cyan]{artist_name}[/cyan]  [dim]| {timecode}[/dim]",
+            title=f"RadioFreeDJ {progress_bar}",
+            subtitle=notif_text.plain,
+            subtitle_align="right",
+        )
+    )
+
+    # Ensure lyrics are synced
+    lyrics_manager.sync(progress)
+
+    # Lyrics panel
+    panel_text = Text()
+    lines = lyrics_manager.lines
+    idx = lyrics_manager.current_index
+    if lyrics_view_mode == "chunk":
+        start = max(0, idx - 3)
+        window = lines[start : start + 8]
+        for i, line in enumerate(window, start=start):
+            if i == idx:
+                panel_text.append(f" {line}\n", style="bold italic yellow")
+            else:
+                panel_text.append(f"- {line}\n")
+    else:
+        for i, line in enumerate(lines):
+            if i == lyrics_cursor:
+                panel_text.append(f"{line}\n", style="bold italic yellow")
+            else:
+                panel_text.append(f"  {line}\n")
+    layout["lyrics"].update(Panel(panel_text, title="󰎆 Lyrics", border_style="cyan"))
+
+    # Menu, GPT, Queue panels
+    layout["menu"].update(
+        Panel(get_menu_text(), title="󰮫 Main Menu", border_style="green")
+    )
+    layout["gpt"].update(
+        Panel(render_gpt_log(), title=" RadioFree󰲿", border_style="magenta")
+    )
+    layout["queue"].update(
+        Panel(render_queue_status(), title="  Coming Up Next", border_style="blue")
+    )
+
+    return layout
+
+
 # ─────────────────────────────────────────────────────────────
-# GPT Actions
+# GPT Actions (using prompt_templates)
 # ─────────────────────────────────────────────────────────────
 
 
 def recommend_next_song(song_name, artist_name):
-    prompt = (
-        f"Reference song: '{song_name}' by {artist_name}. "
-        "Recommend a similar song. Respond ONLY in JSON format:\n"
-        "{'track_name': '<TRACK NAME>', 'artist_name': '<ARTIST NAME>'}"
-    )
+    template = prompt_templates["recommend_next_song"]
+    prompt = template.format(song_name=song_name, artist_name=artist_name)
     response = gpt_dj.ask(prompt)
     log_gpt(prompt, response)
     if response:
         console.print(
-            Panel(response, title=" RadioFree Recommendation", border_style="magenta")
+            Panel(response, title="  RadioFree󰲿 Recommended", border_style="magenta")
         )
     else:
-        console.print("[bold red] No recommendation received.[/bold red]")
+        console.print("[bold red]󱚢 No recommendation received.[/bold red]")
     return response
 
 
 def recommend_next_ten_songs(song_name, artist_name):
-    prompt = (
-        f"Reference song: '{song_name}' by {artist_name}. "
-        "List 10 similar songs in the format:\n"
-        "1. [Track Title] by [Artist Name]"
-    )
+    template = prompt_templates["recommend_next_ten_songs"]
+    prompt = template.format(song_name=song_name, artist_name=artist_name)
     response = gpt_dj.ask(prompt)
     log_gpt(prompt, response)
     if response:
         console.print(
-            Panel(response, title="  Top 10 Recommendations", border_style="magenta")
+            Panel(
+                response,
+                title="  Top 10 - RadioFree󰲿 Recommended",
+                border_style="magenta",
+            )
         )
     else:
-        console.print("[bold red]  No response received for top 10.[/bold red]")
+        console.print("[bold red]󱚢  No response received for top 10.[/bold red]")
 
 
 def create_playlist(song_name, artist_name):
-    prompt = (
-        f"The current song is '{song_name}' by {artist_name}. "
-        "Create a playlist of 15 songs matching the same vibe."
-    )
+    template = prompt_templates["create_playlist"]
+    prompt = template.format(song_name=song_name, artist_name=artist_name)
     response = gpt_dj.ask(prompt)
     log_gpt(prompt, response)
     if response:
         console.print(
-            Panel(response, title="  FreeRadio Playlist", border_style="magenta")
+            Panel(response, title="󰐑 FreeRadio Playlist", border_style="magenta")
         )
     else:
-        console.print("[bold red]  Playlist creation failed.[/bold red]")
+        console.print("[bold red]󱚢  Playlist creation failed.[/bold red]")
 
 
 def theme_based_playlist():
     theme = Prompt.ask("Enter a theme (e.g., focus, happy, sad)").strip()
-    prompt = (
-        f"Create a playlist of 10 songs fitting the theme '{theme}'. "
-        "Format:\n1. [Track Title] by [Artist Name]"
-    )
+    template = prompt_templates["theme_based_playlist"]
+    prompt = template.format(theme=theme)
     response = gpt_dj.ask(prompt)
     log_gpt(prompt, response)
     if response:
         console.print(
-            Panel(response, title=f" Themed Playlist: {theme}", border_style="magenta")
+            Panel(response, title=f"󰐑 Themed Playlist: {theme}", border_style="magenta")
         )
     else:
-        console.print("[bold red] No themed playlist returned.[/bold red]")
+        console.print("[bold red]󱚢 No themed playlist returned.[/bold red]")
 
 
 def generate_radio_intro(track_name, artist_name):
-    prompt = (
-        f"Create a short and engaging radio-style intro for the song '{track_name}' by {artist_name}. "
-        "It should sound like a real DJ on a talk show introducing it. Keep it under 30 words."
-    )
+    template = prompt_templates["generate_radio_intro"]
+    prompt = template.format(track_name=track_name, artist_name=artist_name)
     response = gpt_dj.ask(prompt)
     log_gpt(prompt, response)
-    return response or " [DJ dead air] No intro available."
+    return response or "󱚢 [DJ dead air] No intro available."
 
 
 def song_insights(song_name, artist_name):
-    prompt = (
-        f"Provide an interesting radio host style insight about '{song_name}' by {artist_name}. "
-        "Keep it short and engaging."
-    )
+    template = prompt_templates["song_insights"]
+    prompt = template.format(song_name=song_name, artist_name=artist_name)
     response = gpt_dj.ask(prompt)
     log_gpt(prompt, response)
     if response:
-        console.print(Panel(response, title=" Insight", border_style="cyan"))
+        console.print(
+            Panel(response, title=" RadioFree DJ - gpt-4o-mini", border_style="cyan")
+        )
     else:
-        console.print("[bold red] No insight generated.[/bold red]")
+        console.print("[bold red]󱚢 No insight generated.[/bold red]")
 
 
 # ─────────────────────────────────────────────────────────────

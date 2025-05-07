@@ -1,10 +1,12 @@
+# gpt_dj.py
+
 import os
 import openai
 import requests
 import logging
 from dotenv import load_dotenv
-from gpt_utils import count_tokens, log_request
-
+from gpt_utils import count_tokens
+from logger_utils import setup_logger
 from rich.console import Console
 
 console = Console()
@@ -45,15 +47,8 @@ class RadioFreeDJ:
         if not self.use_local_llm:
             openai.api_key = self.api_key
 
-        # Logger to the same log_path
-        self.logger = logging.getLogger("RadioFreeDJ")
-        if not self.logger.handlers:
-            handler = logging.FileHandler(self.log_path)
-            handler.setFormatter(
-                logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
-            )
-            self.logger.setLevel(logging.DEBUG)
-            self.logger.addHandler(handler)
+        # Unified logger
+        self.logger = setup_logger("RadioFreeDJ", self.log_path)
 
     def count_tokens(self, prompt: str) -> int:
         try:
@@ -62,12 +57,9 @@ class RadioFreeDJ:
             console.print(f"[red]Token count error:[/red] {e}")
             return 0
 
-    def log_request(self, prompt: str, token_count: int):
-        log_request(prompt, self.active_model, token_count, self.log_path)
-
     def ask(self, prompt: str) -> str | None:
         token_count = self.count_tokens(prompt)
-        self.log_request(prompt, token_count)
+        self.logger.debug(f"Prompt sent ({token_count} tokens):\n{prompt}")
 
         try:
             if self.use_local_llm:
@@ -76,7 +68,7 @@ class RadioFreeDJ:
                 response = self._ask_openai(prompt)
 
             # Debug log
-            self.logger.debug(f"Response received:\n{response}")
+            self.logger.info(f"Response for prompt:\n{response}")
 
             # Callback to track in UI
             if self.on_response:
@@ -92,7 +84,6 @@ class RadioFreeDJ:
             return None
 
     def _ask_openai(self, prompt: str) -> str:
-        # Assemble messages with optional system role
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})

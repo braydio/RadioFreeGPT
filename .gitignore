@@ -5,5 +5,8 @@ requests.log
 *.pyc
 *.log
 .env
-
+.venv/
 *.local
+
+
+

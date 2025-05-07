@@ -23,6 +23,8 @@ from rich.live import Live
 from rich.prompt import Prompt
 from rich.text import Text
 
+from logger_utils import setup_logger
+
 # === Load Environment Variables ===
 load_dotenv()
 
@@ -31,6 +33,9 @@ prompts_path = os.path.join(os.path.dirname(__file__), "prompts.json")
 with open(prompts_path, "r", encoding="utf-8") as f:
     prompt_templates = json.load(f)
 
+# === Setup Logging ===
+log_path = os.path.join(os.path.dirname(__file__), "requests.log")
+logger = setup_logger("FreeRadioMain", log_path)
 
 # --- Command logging setup ---
 COMMAND_LABELS = {
@@ -51,17 +56,14 @@ COMMAND_LOG_FILE = os.path.join(os.path.dirname(__file__), "commands.log")
 
 
 def log_command(choice: str):
-    """
-    Append a timestamped command entry to COMMAND_LOG_FILE.
-    """
     label = COMMAND_LABELS.get(choice, "Unknown")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"{timestamp} - {choice} → {label}\n"
     try:
         with open(COMMAND_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(entry)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Could not write command log: {e}")
     return label
 
 
@@ -75,14 +77,6 @@ command_log_buffer = []
 notifications = []
 user_input_queue = Queue()
 
-# === API & Model Setup ===
-api_key = os.getenv("OPENAI_API_KEY")
-gpt_model = os.getenv("GPT_MODEL", "gpt-4o-mini")
-log_path = os.path.join(os.path.dirname(__file__), "requests.log")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY is not set in .env!")
-
-# === GPT Log Buffer & Callback ===
 gpt_log_buffer = []
 
 
@@ -94,6 +88,11 @@ def log_gpt(prompt: str, response: str):
 
 
 # === Instantiate RadioFreeDJ ===
+api_key = os.getenv("OPENAI_API_KEY")
+gpt_model = os.getenv("GPT_MODEL", "gpt-4o-mini")
+if not api_key:
+    raise ValueError("OPENAI_API_KEY is not set in .env!")
+
 gpt_dj = RadioFreeDJ(
     api_key=api_key,
     active_model=gpt_model,
@@ -108,10 +107,11 @@ lyrics_manager = LyricsSyncManager(spotify_controller)
 console = Console()
 last_song = (None, None)
 
-
 # ─────────────────────────────────────────────────────────────
 # Event Notifications
 # ─────────────────────────────────────────────────────────────
+
+
 def notify(message: str, style="bold yellow"):
     notifications.append(Text(message, style=style))
     if len(notifications) > 3:
@@ -121,6 +121,25 @@ def notify(message: str, style="bold yellow"):
 # ─────────────────────────────────────────────────────────────
 # Rich UI Layout & Helpers
 # ─────────────────────────────────────────────────────────────
+
+
+def recommend_next_ten_songs(song_name, artist_name):
+    tpl = prompt_templates["recommend_next_ten_songs"]
+    prompt = tpl.format(song_name=song_name, artist_name=artist_name)
+
+    resp = gpt_dj.ask(prompt)
+    log_gpt(prompt, resp)
+    logger.info(f"[recommend_next_ten_songs] Prompt:\n{prompt}")
+    logger.info(f"[recommend_next_ten_songs] Response:\n{resp}")
+
+    if resp:
+        console.print(
+            Panel(
+                resp, title="  Top 10 - RadioFree󰲿 Recommended", border_style="magenta"
+            )
+        )
+
+
 def render_queue_status() -> Text:
     queue_status = Text.from_markup(
         f"[bold]Mode:[/bold] {upnext.mode}\n"
@@ -278,8 +297,12 @@ def recommend_next_ten_songs(song_name, artist_name):
 def create_playlist(song_name, artist_name):
     tpl = prompt_templates["create_playlist"]
     prompt = tpl.format(song_name=song_name, artist_name=artist_name)
+
     resp = gpt_dj.ask(prompt)
     log_gpt(prompt, resp)
+    logger.info(f"[create_playlist] Prompt:\n{prompt}")
+    logger.info(f"[create_playlist] Response:\n{resp}")
+
     if resp:
         console.print(Panel(resp, title="󰐑 FreeRadio Playlist", border_style="magenta"))
 
@@ -288,8 +311,12 @@ def theme_based_playlist():
     theme = Prompt.ask("Enter a theme").strip()
     tpl = prompt_templates["theme_based_playlist"]
     prompt = tpl.format(theme=theme)
+
     resp = gpt_dj.ask(prompt)
     log_gpt(prompt, resp)
+    logger.info(f"[theme_based_playlist] Prompt:\n{prompt}")
+    logger.info(f"[theme_based_playlist] Response:\n{resp}")
+
     if resp:
         console.print(
             Panel(resp, title=f"󰐑 Themed Playlist: {theme}", border_style="magenta")
@@ -299,16 +326,24 @@ def theme_based_playlist():
 def generate_radio_intro(track_name, artist_name):
     tpl = prompt_templates["generate_radio_intro"]
     prompt = tpl.format(track_name=track_name, artist_name=artist_name)
+
     resp = gpt_dj.ask(prompt)
     log_gpt(prompt, resp)
+    logger.info(f"[generate_radio_intro] Prompt:\n{prompt}")
+    logger.info(f"[generate_radio_intro] Response:\n{resp}")
+
     return resp or "󱚢 [DJ dead air] No intro available."
 
 
 def song_insights(song_name, artist_name):
     tpl = prompt_templates["song_insights"]
     prompt = tpl.format(song_name=song_name, artist_name=artist_name)
+
     resp = gpt_dj.ask(prompt)
     log_gpt(prompt, resp)
+    logger.info(f"[song_insights] Prompt:\n{prompt}")
+    logger.info(f"[song_insights] Response:\n{resp}")
+
     if resp:
         console.print(
             Panel(resp, title=" RadioFree DJ - gpt-4o-mini", border_style="cyan")
@@ -321,16 +356,16 @@ def song_insights(song_name, artist_name):
 
 
 def read_input():
-    """
-    Background thread: prompt user, enqueue choice, log immediately.
-    """
     while True:
         choice = Prompt.ask("[bold green]  Select an option[/bold green]").strip()
         user_input_queue.put(choice)
         log_command(choice)
 
 
+<<<<<<< Updated upstream
 # Start the input thread exactly once
+=======
+>>>>>>> Stashed changes
 input_thread = threading.Thread(target=read_input, daemon=True)
 input_thread.start()
 
@@ -395,8 +430,6 @@ def main():
 
     try:
         console.print("[green]🚀 Starting FreeRadioDJ...[/green]\n")
-
-        # — Get the very first track
         song_name, artist_name = spotify_controller.get_current_song()
         while not song_name:
             console.print(
@@ -405,21 +438,14 @@ def main():
             time.sleep(3)
             song_name, artist_name = spotify_controller.get_current_song()
 
-        # — Wait for a real duration_ms (>=1 sec)
         while True:
             try:
                 playback = spotify_controller.sp.current_playback()
                 item = playback.get("item", {}) if playback else {}
                 duration_ms = item.get("duration_ms", 0)
             except ReadTimeout:
-                notify("⚠️ Spotify API timeout (startup), retrying...", style="red")
-                time.sleep(1)
+                notify("Spotify API timeout (startup), retrying...", style="red")
                 continue
-            except RequestException as e:
-                notify(f"⚠️ Spotify API error (startup): {e}", style="red")
-                time.sleep(1)
-                continue
-
             if duration_ms >= 1000:
                 break
             time.sleep(0.2)
@@ -429,21 +455,15 @@ def main():
         lyrics_manager.start(song_name, artist_name, album_name, duration_ms)
 
         console.print(
-            "[dim]Press [bold]l[/bold] to toggle lyrics, "
-            "[bold]g[/bold] for GPT log, or enter menu option (0–6, t).[/dim]"
+            "[dim]Press [bold]l[/bold] to toggle lyrics, [bold]g[/bold] for GPT log, or enter menu option (0–6, t).[/dim]"
         )
 
         with Live(refresh_per_second=2, screen=True) as live:
             while True:
                 try:
                     playback = spotify_controller.sp.current_playback()
-                except ReadTimeout:
-                    notify("⚠️ Spotify API timeout, retrying...", style="red")
-                    time.sleep(1)
-                    continue
-                except RequestException as e:
-                    notify(f"⚠️ Spotify API error: {e}", style="red")
-                    time.sleep(1)
+                except (ReadTimeout, RequestException) as e:
+                    notify(f"Spotify API error: {e}", style="red")
                     continue
 
                 if not playback or not playback.get("item"):
@@ -455,7 +475,6 @@ def main():
                 current_artist = item["artists"][0]["name"]
                 progress_ms = playback.get("progress_ms", 0)
 
-                # On track change
                 if (current_song, current_artist) != last_song:
                     last_song = (current_song, current_artist)
                     while True:
@@ -479,11 +498,9 @@ def main():
                         current_song, current_artist, album_name, duration_ms
                     )
 
-                # Sync and redraw
                 lyrics_manager.sync(progress_ms)
                 live.update(create_layout(current_song, current_artist))
 
-                # Handle user input
                 if not user_input_queue.empty():
                     choice = user_input_queue.get()
                     process_user_input(choice, current_song, current_artist)
@@ -493,12 +510,10 @@ def main():
     except KeyboardInterrupt:
         console.print("\n[bold red]⏹ Exiting FreeRadioDJ... Goodbye![/bold red]")
     except Exception as e:
+        logger.exception("Unexpected error in main loop")
         console.print(f"\n[red]❌ Unexpected error in main loop: {e}[/red]")
         console.print("\n[bold red]⏹ Exiting FreeRadioDJ... Goodbye![/bold red]")
 
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()

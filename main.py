@@ -330,10 +330,9 @@ def read_input():
         log_command(choice)
 
 
-# Replace your double‐spawn with a single input thread:
+# Start the input thread exactly once
 input_thread = threading.Thread(target=read_input, daemon=True)
 input_thread.start()
-threading.Thread(target=read_input, daemon=True).start()
 
 
 def process_user_input(choice: str, current_song: str, current_artist: str):

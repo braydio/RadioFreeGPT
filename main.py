@@ -362,14 +362,6 @@ def read_input():
         log_command(choice)
 
 
-<<<<<<< Updated upstream
-# Start the input thread exactly once
-=======
->>>>>>> Stashed changes
-input_thread = threading.Thread(target=read_input, daemon=True)
-input_thread.start()
-
-
 def process_user_input(choice: str, current_song: str, current_artist: str):
     """
     Handle a single user choice: update in-UI buffer, notify, dispatch actions.

@@ -3,8 +3,9 @@
 import logging
 import os
 
+# logfile = os.path.resolve().parent(__file__).parent / log_path
 
-def setup_logger(name: str, log_path: str = "requests.log") -> logging.Logger:
+def setup_logger(name: str, log_path: str = "./logs/requests.log") -> logging.Logger:
     """
     Set up and return a logger with the given name and log file path.
     """
@@ -19,3 +20,8 @@ def setup_logger(name: str, log_path: str = "requests.log") -> logging.Logger:
         logger.setLevel(logging.DEBUG)
         logger.addHandler(handler)
     return logger
+
+if __name__ == "__main__":
+    # setup_logger(name="app_logger")
+    logger = setup_logger(name="app_logger")
+    logger.info(f"Successfully set up {logger}")

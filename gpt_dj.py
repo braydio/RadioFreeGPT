@@ -2,6 +2,7 @@
 
 import os
 import openai
+from openai import OpenAIError
 import requests
 import logging
 from dotenv import load_dotenv
@@ -84,9 +85,13 @@ class RadioFreeDJ:
                 messages=messages
             )
             return response.choices[0].message.content.strip()
-        except Exception as e:
+        except OpenAIError as e:
             self.logger.error(f"OpenAI request failed: {e}")
             console.print(Panel(str(e), title="❌ GPT API Error", border_style="red"))
+            return "[gpt-error]"
+        except Exception as e:
+            self.logger.error(f"Unexpected error during OpenAI call: {e}")
+            console.print(Panel(str(e), title="❌ GPT Error", border_style="red"))
             return "[gpt-error]"
 
 

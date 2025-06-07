@@ -1,0 +1,12 @@
+-- # Up next feature should control the actual spotify queue.
+-- # Maybe using spotifyd on arch linux. It should queue up all 
+-- # results from the latest call, and display a list of the queued next 
+-- # songs. 
+
+2. I want a suggestion on how to integrate last.fm, what features it should use and how this program should use last.fm. 
+
+3. I want feature support for saving playlist, for saving a song to a SpoTuify Playlist. This should create playlists on my actual spotify.
+
+4. I want the client to be able to skip to next song, startover the song, prev song, and up/down volume.
+
+5. I want integration for chatgpt to break down the lyrics and explain what they mean. Add interesting insight etc. I also want the chatgpt log feed window to be somehow paginated or scrollable.

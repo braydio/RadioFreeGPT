@@ -163,12 +163,12 @@ def render_queue_status() -> Text:
         f"[bold]Queued Songs:[/bold] {len(upnext.queue)}\n"
     )
     if upnext.queue:
-        next_up = upnext.queue[0]
-        queue_status.append(
-            Text.from_markup(
-                f"[bold]Next Up:[/bold] {next_up['track_name']} - {next_up['artist_name']}"
+        for i, track in enumerate(upnext.queue[:5], start=1):
+            queue_status.append(
+                Text.from_markup(
+                    f"{i}. {track['track_name']} - {track['artist_name']}\n"
+                )
             )
-        )
     else:
         queue_status.append(Text.from_markup("[dim]No songs queued.[/dim]"))
     return queue_status

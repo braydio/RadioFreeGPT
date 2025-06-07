@@ -1,5 +1,5 @@
 # spotify_utils.py
-
+import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
@@ -7,7 +7,6 @@ from logger_utils import setup_logger
 
 # Load environment variables
 load_dotenv()
-
 
 
 class SpotifyController:
@@ -52,11 +51,11 @@ class SpotifyController:
 
     def play_track(self, track_uri):
         try:
-            devices = self.sp.devices().get('devices', [])
+            devices = self.sp.devices().get("devices", [])
             if not devices:
                 self.logger.warning("No active Spotify device")
                 return
-            device_id = devices[0]['id']
+            device_id = devices[0]["id"]
             self.sp.transfer_playback(device_id, force_play=True)
             self.sp.start_playback(uris=[track_uri])
         except Exception as e:
@@ -134,4 +133,3 @@ class SpotifyController:
             self.logger.info("Volume set to %d%%", new_vol)
         except Exception as e:
             self.logger.error("Error changing volume: %s", e)
-    

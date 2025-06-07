@@ -12,6 +12,7 @@ from spotify_utils import SpotifyController
 from upnext import UpNextManager
 from genius_utils import get_lyrics
 from lyrics_sync import LyricsSyncManager
+from lastfm_utils import update_now_playing, scrobble
 from requests.exceptions import ReadTimeout, RequestException
 
 from queue import Queue
@@ -123,7 +124,7 @@ spotify_controller = SpotifyController()
 upnext = UpNextManager(gpt_dj, spotify_controller, prompt_templates)
 lyrics_manager = LyricsSyncManager(spotify_controller)
 console = Console()
-last_song = (None, None)
+last_song = {"name": None, "artist": None, "started": 0}
 
 # ─────────────────────────────────────────────────────────────
 # Event Notifications
@@ -424,7 +425,7 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         notify("❌ Invalid menu option.", style="red")
 
 def sync_with_lastfm(song_name, artist_name):
-    notify("📡 Placeholder: Last.fm sync for this track would be triggered here.", style="blue")
+    update_now_playing(song_name, artist_name)
 
 def main():
     global last_song, show_lyrics, show_gpt_log, lyrics_view_mode, lyrics_cursor
@@ -448,8 +449,9 @@ def main():
                 break
             time.sleep(0.2)
         album_name = item.get("album", {}).get("name", "")
-        last_song = (song_name, artist_name)
+        last_song = {"name": song_name, "artist": artist_name, "started": int(time.time())}
         lyrics_manager.start(song_name, artist_name, album_name, duration_ms)
+        update_now_playing(song_name, artist_name)
         console.print("[dim]Press [bold]l[/bold] to toggle lyrics, [bold]g[/bold] for GPT log, or press keys (1–6, t, arrows, space, +, -).[/dim]")
         with Live(refresh_per_second=2, screen=True) as live:
             while True:
@@ -465,8 +467,10 @@ def main():
                 current_song = item["name"]
                 current_artist = item["artists"][0]["name"]
                 progress_ms = playback.get("progress_ms", 0)
-                if (current_song, current_artist) != last_song:
-                    last_song = (current_song, current_artist)
+                if (current_song, current_artist) != (last_song["name"], last_song["artist"]):
+                    if last_song["name"] and last_song["artist"]:
+                        scrobble(last_song["name"], last_song["artist"], last_song["started"])
+                    last_song = {"name": current_song, "artist": current_artist, "started": int(time.time())}
                     while True:
                         try:
                             play2 = spotify_controller.sp.current_playback()

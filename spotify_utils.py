@@ -1,5 +1,4 @@
 
-import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
@@ -133,3 +132,4 @@ class SpotifyController:
             self.logger.info("Volume set to %d%%", new_vol)
         except Exception as e:
             self.logger.error("Error changing volume: %s", e)
+    

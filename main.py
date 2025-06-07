@@ -107,7 +107,7 @@ def log_gpt(prompt: str, response: str):
 
 # === instantiate radiofreedj ===
 api_key = os.getenv("OPENAI_API_KEY")
-gpt_model = os.getenv("gpt_model", "gpt-4o-mini")
+gpt_model = os.getenv("GPT_MODEL", "gpt-4o-mini")
 if not api_key:
     raise ValueError("OPENAI_API_KEY is not set in .env!")
 

@@ -18,6 +18,29 @@ class UpNextManager:
         self.mode = "smart"
         self.console = Console()
 
+    def _queue_track(self, track_name: str, artist_name: str) -> bool:
+        """Search Spotify and queue the track if found."""
+        uri = self.sp.search_track(track_name, artist_name)
+        if uri:
+            self.sp.add_to_queue(uri)
+            self.queue.append({"track_name": track_name, "artist_name": artist_name})
+            self.dj.logger.info(f"Queued track: {track_name} by {artist_name}")
+            return True
+        self.dj.logger.warning(
+            f"Track not found for queueing: {track_name} by {artist_name}"
+        )
+        return False
+
+    def show_queue(self):
+        if not self.queue:
+            self.console.print("[dim]Queue is empty.[/dim]")
+            return
+        lines = [
+            f"{i}. {t['track_name']} - {t['artist_name']}"
+            for i, t in enumerate(self.queue, 1)
+        ]
+        self.console.print(Panel("\n".join(lines), title="Up Next", border_style="blue"))
+
     def toggle_playlist_mode(self):
         self.mode = "playlist" if self.mode == "smart" else "smart"
         self.console.print(Panel(f"[bold cyan]Switched to [green]{self.mode}[/green] mode.[/bold cyan]"))
@@ -33,60 +56,61 @@ class UpNextManager:
             track_name = parsed.get("track_name")
             artist_name = parsed.get("artist_name")
             if track_name and artist_name:
-                self.queue.insert(0, {"track_name": track_name, "artist_name": artist_name})
-                self.dj.logger.info(f"Queued track: {track_name} by {artist_name}")
+                if self._queue_track(track_name, artist_name):
+                    intro = self._generate_radio_intro(track_name, artist_name)
+                    self.console.print(
+                        Panel(intro, title=" DJ Intro", border_style="blue")
+                    )
+                else:
+                    self.console.print(
+                        f"[red] Could not find: {track_name} by {artist_name}[/red]"
+                    )
             else:
                 self.dj.logger.warning("Missing track data in GPT response.")
         except Exception as e:
             self.dj.logger.error(f"Error parsing GPT response as JSON: {e}")
-            return
-
-        if not self.queue:
-            return
-
-        next_track = self.queue.pop(0)
-        intro = self._generate_radio_intro(next_track["track_name"], next_track["artist_name"])
-        self.console.print(Panel(intro, title=" DJ Intro", border_style="blue"))
-
-        track_uri = self.sp.search_track(next_track["track_name"], next_track["artist_name"])
-        if track_uri:
-            self.sp.play_track(track_uri)
-        else:
-            self.console.print(
-                f"[red] Could not find: {next_track['track_name']} by {next_track['artist_name']}[/red]"
-            )
 
     def queue_one_song(self, song_name, artist_name):
         prompt = self.templates["recommend_next_song"].format(song_name=song_name, artist_name=artist_name)
         response = self.dj.ask(prompt)
-        if response:
-            try:
-                track = json.loads(response.replace("'", '"'))
-                self.queue.append(track)
-                self.console.print(f"[green]➕ Queued:[/green] {track['track_name']} by {track['artist_name']}")
-            except json.JSONDecodeError:
-                self.console.print("[red]Failed to parse GPT response.[/red]")
-        else:
+        if not response:
             self.console.print("[red]No song queued.[/red]")
+            return
+
+        try:
+            track = json.loads(response.replace("'", '"'))
+            if self._queue_track(track.get("track_name"), track.get("artist_name")):
+                self.console.print(
+                    f"[green]➕ Queued:[/green] {track['track_name']} by {track['artist_name']}"
+                )
+            else:
+                self.console.print(
+                    f"[red]Could not find: {track['track_name']} by {track['artist_name']}[/red]"
+                )
+        except json.JSONDecodeError:
+            self.console.print("[red]Failed to parse GPT response.[/red]")
+        self.show_queue()
 
     def queue_ten_songs(self, song_name, artist_name):
         prompt = self.templates["recommend_next_ten_songs"].format(song_name=song_name, artist_name=artist_name)
         response = self.dj.ask(prompt)
-        if response:
-            lines = response.strip().split("\n")
-            count = 0
-            for line in lines:
-                if "." in line and " by " in line:
-                    try:
-                        title = line.split(". ", 1)[1]
-                        track, artist = title.rsplit(" by ", 1)
-                        self.queue.append({"track_name": track.strip(), "artist_name": artist.strip()})
-                        count += 1
-                    except Exception:
-                        continue
-            self.console.print(f"[green]➕ Queued {count} songs.[/green]")
-        else:
+        if not response:
             self.console.print("[red]No songs queued.[/red]")
+            return
+
+        lines = response.strip().split("\n")
+        count = 0
+        for line in lines:
+            if "." in line and " by " in line:
+                try:
+                    title = line.split(". ", 1)[1]
+                    track, artist = title.rsplit(" by ", 1)
+                    if self._queue_track(track.strip(), artist.strip()):
+                        count += 1
+                except Exception:
+                    continue
+        self.console.print(f"[green]➕ Queued {count} songs.[/green]")
+        self.show_queue()
 
     def queue_playlist(self, song_name, artist_name):
         prompt = self.templates["create_playlist"].format(song_name=song_name, artist_name=artist_name)
@@ -99,22 +123,24 @@ class UpNextManager:
 
     def _parse_and_queue_playlist(self, prompt):
         response = self.dj.ask(prompt)
-        if response:
-            lines = response.strip().split("\n")
-            count = 0
-            for line in lines:
-                if "." in line and " by " in line:
-                    try:
-                        title = line.split(". ", 1)[1]
-                        track, artist = title.rsplit(" by ", 1)
-                        self.queue.append({"track_name": track.strip(), "artist_name": artist.strip()})
-                        count += 1
-                    except Exception:
-                        continue
-            self.mode = "playlist"
-            self.console.print(f"[green]📀 Playlist queued with {count} tracks.[/green]")
-        else:
+        if not response:
             self.console.print("[red]Playlist creation failed.[/red]")
+            return
+
+        lines = response.strip().split("\n")
+        count = 0
+        for line in lines:
+            if "." in line and " by " in line:
+                try:
+                    title = line.split(". ", 1)[1]
+                    track, artist = title.rsplit(" by ", 1)
+                    if self._queue_track(track.strip(), artist.strip()):
+                        count += 1
+                except Exception:
+                    continue
+        self.mode = "playlist"
+        self.console.print(f"[green]📀 Playlist queued with {count} tracks.[/green]")
+        self.show_queue()
 
     def song_insight(self, song_name, artist_name):
         prompt = self.templates["song_insights"].format(song_name=song_name, artist_name=artist_name)

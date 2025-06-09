@@ -1,3 +1,5 @@
+"""Interactive TUI for controlling Spotify playback with GPT prompts."""
+
 import threading
 import time
 import os
@@ -185,12 +187,17 @@ def render_progress_bar(progress_ms, duration_ms):
 
 
 def render_gpt_log() -> Text:
+    """Return the latest GPT response formatted with Rich markup."""
+
     panel_text = Text()
     if show_gpt_log and gpt_log_buffer:
         _, latest = gpt_log_buffer[-1]
-        panel_text.append(latest, style="cyan")
+        # Parse markup tags in the GPT response so styling is applied
+        panel_text = Text.from_markup(latest, style="cyan")
     else:
-        panel_text.append("[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]")
+        panel_text.append(
+            "[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]"
+        )
     return panel_text
 
 

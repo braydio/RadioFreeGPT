@@ -9,7 +9,6 @@ from logger_utils import setup_logger
 load_dotenv()
 
 
-
 class SpotifyController:
     def __init__(self):
         self.sp = spotipy.Spotify(
@@ -52,11 +51,11 @@ class SpotifyController:
 
     def play_track(self, track_uri):
         try:
-            devices = self.sp.devices().get('devices', [])
+            devices = self.sp.devices().get("devices", [])
             if not devices:
                 self.logger.warning("No active Spotify device")
                 return
-            device_id = devices[0]['id']
+            device_id = devices[0]["id"]
             self.sp.transfer_playback(device_id, force_play=True)
             self.sp.start_playback(uris=[track_uri])
         except Exception as e:

@@ -1,3 +1,5 @@
+"""Interactive TUI for controlling Spotify playback with GPT prompts."""
+
 import threading
 import time
 import os
@@ -12,6 +14,7 @@ from spotify_utils import SpotifyController
 from upnext import UpNextManager
 from genius_utils import get_lyrics
 from lyrics_sync import LyricsSyncManager
+from lastfm_utils import update_now_playing, scrobble
 from requests.exceptions import ReadTimeout, RequestException
 
 from queue import Queue
@@ -49,6 +52,7 @@ COMMAND_LABELS = {
     "4": "Queue Playlist",
     "5": "Queue Theme Playlist",
     "6": "Song Insight",
+    "7": "Lyric Breakdown",
     "t": "Toggle Mode",
     "0": "Quit",
     "l": "Toggle Lyrics View",
@@ -107,7 +111,7 @@ def log_gpt(prompt: str, response: str):
 
 # === instantiate radiofreedj ===
 api_key = os.getenv("OPENAI_API_KEY")
-gpt_model = os.getenv("gpt_model", "gpt-4o-mini")
+gpt_model = os.getenv("GPT_MODEL", "gpt-4o-mini")
 if not api_key:
     raise ValueError("OPENAI_API_KEY is not set in .env!")
 
@@ -123,7 +127,7 @@ spotify_controller = SpotifyController()
 upnext = UpNextManager(gpt_dj, spotify_controller, prompt_templates)
 lyrics_manager = LyricsSyncManager(spotify_controller)
 console = Console()
-last_song = (None, None)
+last_song = {"name": None, "artist": None, "started": 0}
 
 # ─────────────────────────────────────────────────────────────
 # Event Notifications
@@ -163,12 +167,12 @@ def render_queue_status() -> Text:
         f"[bold]Queued Songs:[/bold] {len(upnext.queue)}\n"
     )
     if upnext.queue:
-        next_up = upnext.queue[0]
-        queue_status.append(
-            Text.from_markup(
-                f"[bold]Next Up:[/bold] {next_up['track_name']} - {next_up['artist_name']}"
+        for i, track in enumerate(upnext.queue[:5], start=1):
+            t_name = track.get("track_name", "Unknown")
+            a_name = track.get("artist_name", "Unknown")
+            queue_status.append(
+                Text.from_markup(f"{i}. {t_name} - {a_name}\n")
             )
-        )
     else:
         queue_status.append(Text.from_markup("[dim]No songs queued.[/dim]"))
     return queue_status
@@ -184,12 +188,17 @@ def render_progress_bar(progress_ms, duration_ms):
 
 
 def render_gpt_log() -> Text:
+    """Return the latest GPT response formatted with Rich markup."""
+
     panel_text = Text()
     if show_gpt_log and gpt_log_buffer:
         _, latest = gpt_log_buffer[-1]
-        panel_text.append(latest, style="cyan")
+        # Parse markup tags in the GPT response so styling is applied
+        panel_text = Text.from_markup(latest, style="cyan")
     else:
-        panel_text.append("[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]")
+        panel_text.append(
+            "[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]"
+        )
     return panel_text
 
 
@@ -204,6 +213,7 @@ def get_menu_text():
         "[bold]4.[/bold] Queue 15-song playlist",
         "[bold]5.[/bold] Queue 10-song theme playlist",
         "[bold]6.[/bold] Get info on current song",
+        "[bold]7.[/bold] Explain current song lyrics",
         f"[bold]t.[/bold] Toggle playback mode ({mode_label} Mode)",
         "[bold]0.[/bold] Quit",
     ]
@@ -376,6 +386,8 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         upnext.queue_theme_playlist()
     elif choice == "6":
         upnext.song_insight(current_song, current_artist)
+    elif choice == "7":
+        upnext.explain_lyrics(current_song, current_artist)
     elif choice == "t":
         upnext.toggle_playlist_mode()
         notify(f"Queue mode: {'Playlist' if upnext.mode == 'playlist' else 'Smart'}", style="magenta")
@@ -424,7 +436,7 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         notify("❌ Invalid menu option.", style="red")
 
 def sync_with_lastfm(song_name, artist_name):
-    notify("📡 Placeholder: Last.fm sync for this track would be triggered here.", style="blue")
+    update_now_playing(song_name, artist_name)
 
 def main():
     global last_song, show_lyrics, show_gpt_log, lyrics_view_mode, lyrics_cursor
@@ -448,8 +460,9 @@ def main():
                 break
             time.sleep(0.2)
         album_name = item.get("album", {}).get("name", "")
-        last_song = (song_name, artist_name)
+        last_song = {"name": song_name, "artist": artist_name, "started": int(time.time())}
         lyrics_manager.start(song_name, artist_name, album_name, duration_ms)
+        update_now_playing(song_name, artist_name)
         console.print("[dim]Press [bold]l[/bold] to toggle lyrics, [bold]g[/bold] for GPT log, or press keys (1–6, t, arrows, space, +, -).[/dim]")
         with Live(refresh_per_second=2, screen=True) as live:
             while True:
@@ -465,8 +478,10 @@ def main():
                 current_song = item["name"]
                 current_artist = item["artists"][0]["name"]
                 progress_ms = playback.get("progress_ms", 0)
-                if (current_song, current_artist) != last_song:
-                    last_song = (current_song, current_artist)
+                if (current_song, current_artist) != (last_song["name"], last_song["artist"]):
+                    if last_song["name"] and last_song["artist"]:
+                        scrobble(last_song["name"], last_song["artist"], last_song["started"])
+                    last_song = {"name": current_song, "artist": current_artist, "started": int(time.time())}
                     while True:
                         try:
                             play2 = spotify_controller.sp.current_playback()

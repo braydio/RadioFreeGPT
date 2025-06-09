@@ -1,6 +1,6 @@
 Save this to .env in the root dir
 
-'''
+```
 # === REQUIRED FOR GPT FUNCTIONALITY ===
 OPENAI_API_KEY=your-openai-api-key-here
 GPT_MODEL=gpt-4o-mini  # or gpt-4, gpt-3.5-turbo, etc.

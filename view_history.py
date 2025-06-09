@@ -5,13 +5,15 @@ import os
 from datetime import datetime
 from rich.console import Console
 from rich.table import Table
+from logger_utils import setup_logger
 
 HISTORY_FILE = os.path.expanduser("~/RadioFree/logs/song_history.jsonl")
+logger = setup_logger(__name__)
 
 def load_history():
     """Load song history entries from the JSONL file."""
     if not os.path.exists(HISTORY_FILE):
-        print("No song history found.")
+        logger.info("No song history found")
         return []
 
     with open(HISTORY_FILE, "r") as f:

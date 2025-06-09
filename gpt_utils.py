@@ -1,9 +1,11 @@
-import os
+import logging
 import tiktoken
 from rich.console import Console
 from rich.panel import Panel
+from logger_utils import setup_logger
 
 console = Console()
+logger = setup_logger(__name__)
 
 
 def count_tokens(prompt, active_model):
@@ -11,19 +13,17 @@ def count_tokens(prompt, active_model):
         encoding = tiktoken.encoding_for_model(active_model)
         return len(encoding.encode(prompt))
     except Exception as e:
+        logger.error("Token count error: %s", e)
         console.print(Panel(str(e), title=" Token Count Error", border_style="red"))
         return len(prompt.split())
 
 
-def log_request(prompt, active_model, token_count, log_path="radio.log"):
+def log_request(prompt, active_model, token_count):
     try:
-        log_path = os.path.abspath(log_path)
-        with open(log_path, "a") as log_file:
-            log_file.write(f"\n--- RadioFreeGPT Request ---\n")
-            log_file.write(f"Model: {active_model}\n")
-            log_file.write(f"Prompt:\n{prompt}\n")
-            log_file.write(f"Tokens used: {token_count}\n")
-            log_file.write(f"-----------------------------\n")
-        console.print(f"[green] Logged request to:[/green] {log_path}")
+        logger.info("--- RadioFreeGPT Request ---")
+        logger.info("Model: %s", active_model)
+        logger.info("Prompt:\n%s", prompt)
+        logger.info("Tokens used: %s", token_count)
     except Exception as e:
+        logger.error("Log write error: %s", e)
         console.print(Panel(str(e), title=" Log Write Error", border_style="red"))

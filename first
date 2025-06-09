@@ -1,8 +1,0 @@
-
-# Reset rules (except default ones)
-while IFS= read -r line; do
-  prio=$(echo "$line" | awk '{print $1}')
-  if [[ "$prio" != "0:" && "$prio" != "32766:" && "$prio" != "32767:" ]]; then
-    sudo ip rule del priority "${prio%:}"
-  fi
-done < <(ip rule show)

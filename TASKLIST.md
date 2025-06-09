@@ -1,23 +1,24 @@
-## TO DO List / Done List
+# PLANNED FEATURES AND CURRENT ISSUES
 
-- Commented out items are completed:
+### COMPLETED
 
-# Up next feature should control the actual spotify queue
+- Up next feature should control the actual spotify queue
+- Maybe using spotifyd on arch linux. It should queue up all results from the latest call, and display a list of the queued next songs
+- Initial integrate last.fm, features to come.
 
-# Maybe using spotifyd on arch linux. It should queue up all
+## PLANNED FEATURES
 
-# results from the latest call, and display a list of the queued next
+- Feature support for saving playlists, allowing users to save a song directly to their Spotify playlists. This will create playlists on the user's actual Spotify account.
 
-# songs
+- Client functionality will include the ability to skip to the next song, restart the current song, go to the previous song, and adjust the volume up and down.
 
-# I want a suggestion on how to integrate last.fm, what features it should use and how this program should use last.fm
+- Integration of ChatGPT will be implemented to break down lyrics and provide explanations, along with interesting insights. Additionally, a ChatGPT log feed window will be designed to be paginated or scrollable for better user experience.
 
-I want feature support for saving playlist, for saving a song to a SpoTuify Playlist. This should create playlists on my actual spotify.
+- Large messages will be displayed in chunks, simulating a real-time streaming experience as if they are appearing in live radio format.
 
-I want the client to be able to skip to next song, startover the song, prev song, and up/down volume.
+- As a longer-term goal, support for additional music players beyond Spotify will be added, featuring toggleable modules with a defined default setting.
 
-Integration for chatgpt to break down the lyrics and explain what they mean. Add interesting insight etc. I also want the chatgpt log feed window to be somehow paginated or scrollable.
+## BUG FIXES to fix
 
-The large messages should be displayed chunked maybe, as if they are ocming in in real time with the radio.
-
-Longer-term Goal: Add support for different players besides Spotify. Toggleable modules with a set default.
+- Unexpected error: "'track_name'"
+  idfk dude

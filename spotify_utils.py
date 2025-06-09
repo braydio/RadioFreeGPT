@@ -119,3 +119,4 @@ class SpotifyController:
             self.logger.info("Volume set to %d%%", new_vol)
         except Exception as e:
             self.logger.error("Error changing volume: %s", e)
+    

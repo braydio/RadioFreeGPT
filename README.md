@@ -1,17 +1,10 @@
-Save this to .env in the root dir
+# RadioFreeGPT
 
-'''
-# === REQUIRED FOR GPT FUNCTIONALITY ===
-OPENAI_API_KEY=your-openai-api-key-here
-GPT_MODEL=gpt-4o-mini  # or gpt-4, gpt-3.5-turbo, etc.
+**RadioFreeGPT** is a terminal-based graphical Spotify client powered by generative AI. It combines AI-driven prompts with Spotify integration to create a visually engaging and smart command-line radio DJ experience. Built using Python and rich CLI components, it turns your terminal into a dynamic radio control deck.
 
-# === REQUIRED FOR GENIUS LYRICS SYNC ===
-GENIUS_API_TOKEN=your-genius-api-token-here
+---
 
-# === REQUIRED FOR SPOTIFY INTEGRATION ===
-SPOTIPY_CLIENT_ID=your-spotify-client-id
-SPOTIPY_CLIENT_SECRET=your-spotify-client-secret
-SPOTIPY_REDIRECT_URI=http://localhost:8888/callback  # or your actual callback URI
+![RadioFreeGPT UI](assets/broken_social_scene.png)
 
 '''
 

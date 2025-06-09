@@ -1,0 +1,10 @@
+Directory Tree Mapping
+[33mFile: genius_utils.py[0m
+[33mFile: gpt_dj.py[0m
+[33mFile: gpt_utils.py[0m
+[33mFile: logger_utils.py[0m
+[33mFile: lyrics_sync.py[0m
+[33mFile: main.py[0m
+[33mFile: spotify_utils.py[0m
+[33mFile: upnext.py[0m
+[33mFile: view_history.py[0m

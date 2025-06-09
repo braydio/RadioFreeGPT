@@ -13,7 +13,7 @@ SPOTIPY_CLIENT_ID=your-spotify-client-id
 SPOTIPY_CLIENT_SECRET=your-spotify-client-secret
 SPOTIPY_REDIRECT_URI=http://localhost:8888/callback  # or your actual callback URI
 
-```
+'''
 
 Using `spotifyd` on Linux
 -------------------------

@@ -5,14 +5,9 @@ from rich.text import Text
 from genius_utils import get_lyrics
 import requests
 from requests.exceptions import RequestException
-import logging
+from logger_utils import setup_logger
 
-# logging.basicConfig(
-#     level=logging.DEBUG,
-#     format="%(asctime)s %(name)s %(levelname)s: %(message)s",
-# )
-
-logging.disable(logging.CRITICAL)
+logger = setup_logger(__name__)
 
 
 class LyricsSyncManager:
@@ -23,7 +18,7 @@ class LyricsSyncManager:
         self.timestamps = []
         self.lines = []
         self.current_index = 0
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logger
 
     def start(self, track_name, artist_name, album_name="", duration_ms=0):
         self.current_index = 0

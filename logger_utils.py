@@ -3,17 +3,20 @@
 import logging
 import os
 
-# logfile = os.path.resolve().parent(__file__).parent / log_path
+# Default log path within the repository root
+LOG_PATH = os.path.join(os.path.dirname(__file__), "requests.log")
 
-def setup_logger(name: str, log_path: str = "./logs/requests.log") -> logging.Logger:
+
+def setup_logger(name: str, log_path: str | None = None) -> logging.Logger:
     """
     Set up and return a logger with the given name and log file path.
     """
     logger = logging.getLogger(name)
+    if log_path is None:
+        log_path = LOG_PATH
     if not logger.handlers:
-        os.makedirs(os.path.dirname(log_path), exist_ok=True) if os.path.dirname(
-            log_path
-        ) else None
+        if os.path.dirname(log_path):
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
         handler = logging.FileHandler(log_path)
         formatter = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s")
         handler.setFormatter(formatter)

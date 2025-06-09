@@ -1,4 +1,7 @@
+"""Manage upcoming tracks and integrate GPT recommendations with Spotify."""
+
 import json
+from gpt_utils import parse_json_response
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -53,9 +56,9 @@ class UpNextManager:
         self.dj.logger.info(f"[auto_dj_transition] Raw Response:\n{resp}")
 
         try:
-            parsed = json.loads(resp.replace("'", '"'))
-            track_name = parsed.get("track_name")
-            artist_name = parsed.get("artist_name")
+            parsed = parse_json_response(resp)
+            track_name = parsed.get("track_name") if parsed else None
+            artist_name = parsed.get("artist_name") if parsed else None
             if track_name and artist_name:
                 if self._queue_track(track_name, artist_name):
                     intro = self._generate_radio_intro(track_name, artist_name)
@@ -79,7 +82,7 @@ class UpNextManager:
             return
 
         try:
-            track = json.loads(response.replace("'", '"'))
+            track = parse_json_response(response)
             t_name = track.get("track_name") if isinstance(track, dict) else None
             a_name = track.get("artist_name") if isinstance(track, dict) else None
             if self._queue_track(t_name, a_name):

@@ -1,3 +1,5 @@
+"""Utility helpers for working with GPT models."""
+
 import logging
 import tiktoken
 from rich.console import Console

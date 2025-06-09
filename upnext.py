@@ -80,13 +80,15 @@ class UpNextManager:
 
         try:
             track = json.loads(response.replace("'", '"'))
-            if self._queue_track(track.get("track_name"), track.get("artist_name")):
+            t_name = track.get("track_name") if isinstance(track, dict) else None
+            a_name = track.get("artist_name") if isinstance(track, dict) else None
+            if self._queue_track(t_name, a_name):
                 self.console.print(
-                    f"[green]➕ Queued:[/green] {track['track_name']} by {track['artist_name']}"
+                    f"[green]➕ Queued:[/green] {t_name or 'Unknown'} by {a_name or 'Unknown'}"
                 )
             else:
                 self.console.print(
-                    f"[red]Could not find: {track['track_name']} by {track['artist_name']}[/red]"
+                    f"[red]Could not find: {t_name or 'Unknown'} by {a_name or 'Unknown'}[/red]"
                 )
         except json.JSONDecodeError:
             self.console.print("[red]Failed to parse GPT response.[/red]")

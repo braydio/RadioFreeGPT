@@ -52,6 +52,7 @@ COMMAND_LABELS = {
     "4": "Queue Playlist",
     "5": "Queue Theme Playlist",
     "6": "Song Insight",
+    "7": "Lyric Breakdown",
     "t": "Toggle Mode",
     "0": "Quit",
     "l": "Toggle Lyrics View",
@@ -212,6 +213,7 @@ def get_menu_text():
         "[bold]4.[/bold] Queue 15-song playlist",
         "[bold]5.[/bold] Queue 10-song theme playlist",
         "[bold]6.[/bold] Get info on current song",
+        "[bold]7.[/bold] Explain current song lyrics",
         f"[bold]t.[/bold] Toggle playback mode ({mode_label} Mode)",
         "[bold]0.[/bold] Quit",
     ]
@@ -384,6 +386,8 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         upnext.queue_theme_playlist()
     elif choice == "6":
         upnext.song_insight(current_song, current_artist)
+    elif choice == "7":
+        upnext.explain_lyrics(current_song, current_artist)
     elif choice == "t":
         upnext.toggle_playlist_mode()
         notify(f"Queue mode: {'Playlist' if upnext.mode == 'playlist' else 'Smart'}", style="magenta")

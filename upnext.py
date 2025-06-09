@@ -3,6 +3,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.prompt import Prompt
+from genius_utils import get_lyrics
 
 
 class UpNextManager:
@@ -149,6 +150,21 @@ class UpNextManager:
             self.console.print(Panel(response, title=" Insight", border_style="cyan"))
         else:
             self.console.print("[red]No insight generated.[/red]")
+
+    def explain_lyrics(self, song_name, artist_name):
+        """Generate a detailed explanation of the song's lyrics via GPT."""
+        lyrics = get_lyrics(song_name, artist_name)
+        if not lyrics:
+            self.console.print("[red]Lyrics not found.[/red]")
+            return
+        prompt = self.templates["explain_lyrics"].format(
+            song_name=song_name, artist_name=artist_name, lyrics=lyrics
+        )
+        response = self.dj.ask(prompt)
+        if response:
+            self.console.print(Panel(response, title=" Lyric Breakdown", border_style="cyan"))
+        else:
+            self.console.print("[red]No lyric explanation generated.[/red]")
 
     def _generate_radio_intro(self, track_name, artist_name):
         prompt = self.templates["generate_radio_intro"].format(track_name=track_name, artist_name=artist_name)

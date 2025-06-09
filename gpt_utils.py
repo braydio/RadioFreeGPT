@@ -1,8 +1,12 @@
+"""Utility helpers for working with GPT models."""
+
 import logging
 import tiktoken
 from rich.console import Console
 from rich.panel import Panel
 from logger_utils import setup_logger
+import json
+import re
 
 console = Console()
 logger = setup_logger(__name__)
@@ -27,3 +31,22 @@ def log_request(prompt, active_model, token_count):
     except Exception as e:
         logger.error("Log write error: %s", e)
         console.print(Panel(str(e), title=" Log Write Error", border_style="red"))
+
+
+def parse_json_response(text: str):
+    """Extract and parse the first JSON object found in *text*.
+
+    Returns a dictionary if successful, otherwise ``None``.
+    """
+    try:
+        return json.loads(text)
+    except Exception:
+        match = re.search(r"\{.*?\}", text, re.DOTALL)
+        if not match:
+            logger.warning("No JSON object detected in response")
+            return None
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError as e:
+            logger.error("JSON decode error: %s", e)
+            return None

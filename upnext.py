@@ -166,7 +166,7 @@ class UpNextManager:
             return
 
         try:
-            track = json.loads(response.replace("'", '"'))
+            track = parse_json_response(response)
             t_name = track.get("track_name") if isinstance(track, dict) else None
             a_name = track.get("artist_name") if isinstance(track, dict) else None
             if self._queue_track(t_name, a_name):

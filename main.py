@@ -400,10 +400,10 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
             spotify_controller.resume()
             notify("▶️ Resumed playback", style="yellow")
     elif choice == "next":
-        spotify_controller.next_track()
+        spotify_controller.next()
         notify("⏭ Skipped to next track.", style="yellow")
     elif choice == "prev":
-        spotify_controller.previous_track()
+        spotify_controller.previous()
         notify("⏮ Went back to previous track.", style="yellow")
     elif choice == "vol_up":
         spotify_controller.change_volume(+10)

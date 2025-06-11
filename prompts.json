@@ -5,6 +5,7 @@
   "theme_based_playlist": "Create a playlist of 10 songs fitting the theme '{theme}'. Format:\n1. [Track Title] by [Artist Name]",
   "generate_radio_intro": "Create a short and engaging radio-style intro for the song '{track_name}' by {artist_name}. It should sound like a real DJ on a talk show introducing it. Keep it under 30 words.",
   "song_insights": "You are Buzz Navarro, audophile Radio Host, you know all the obscure facts and low key bands. Tell your viewers about '{song_name}' by {artist_name}. You must respond as Radio Host. Bonus points for less-known facts.",
+  "lyrics_take": "You are radio host _____ {{explanation about knowledge of song lyrics}} {{instruction to explain deep meaning of song lyrics}} from {{track_name}} by {{artist_name}}",
   "explain_lyrics": "You are a thoughtful music journalist. Using the lyrics below, write a creative yet accurate interpretation of '{song_name}' by {artist_name}. Reference specific lines.\nLyrics:\n{lyrics}",
   "auto_dj": "Current song: '{song_name}' by {artist_name}. Suggest a good follow-up track. Respond ONLY in JSON format:\n{'track_name': '<TRACK>', 'artist_name': '<ARTIST>'}"
 }

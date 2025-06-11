@@ -1,5 +1,8 @@
-# spotify_utils.py
+"""Utilities for controlling Spotify playback via the Spotipy client.
 
+This module exposes :class:`SpotifyController`, a thin wrapper that provides
+methods for playing tracks, adjusting volume and managing the playback queue.
+"""
 import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -11,6 +14,7 @@ load_dotenv()
 
 
 class SpotifyController:
+    """Wrapper around Spotipy exposing common playback controls."""
     def __init__(self):
         self.sp = spotipy.Spotify(
             auth_manager=SpotifyOAuth(
@@ -63,24 +67,28 @@ class SpotifyController:
             self.logger.error("Error playing track: %s", e)
 
     def pause(self):
+        """Pause the currently playing track."""
         try:
             self.sp.pause_playback()
         except Exception as e:
             self.logger.error("Error pausing: %s", e)
 
     def resume(self):
+        """Resume playback on the active device."""
         try:
             self.sp.start_playback()
         except Exception as e:
             self.logger.error("Error resuming: %s", e)
 
     def next(self):
+        """Skip to the next track."""
         try:
             self.sp.next_track()
         except Exception as e:
             self.logger.error("Error skipping: %s", e)
 
     def previous(self):
+        """Return to the previous track."""
         try:
             self.sp.previous_track()
         except Exception as e:
@@ -98,29 +106,6 @@ class SpotifyController:
         except Exception as e:
             self.logger.error("Error adding to queue: %s", e)
 
-    def pause(self):
-        try:
-            self.sp.pause_playback()
-        except Exception as e:
-            self.logger.error("Error pausing playback: %s", e)
-
-    def resume(self):
-        try:
-            self.sp.start_playback()
-        except Exception as e:
-            self.logger.error("Error resuming playback: %s", e)
-
-    def next_track(self):
-        try:
-            self.sp.next_track()
-        except Exception as e:
-            self.logger.error("Error skipping to next track: %s", e)
-
-    def previous_track(self):
-        try:
-            self.sp.previous_track()
-        except Exception as e:
-            self.logger.error("Error going to previous track: %s", e)
 
     def change_volume(self, delta):
         try:

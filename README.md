@@ -37,6 +37,10 @@ cp example.env .env
 ```
 
 Update `.env` with your Spotify Client ID, Secret, and Redirect URI.
+## Optional: Using `spotifyd` on Linux
+
+On systems like Arch Linux you can run a headless Spotify client with [`spotifyd`](https://github.com/Spotifyd/spotifyd). Start `spotifyd` before running RadioFreeDJ so that the Spotify Web API has an active device to queue tracks to.
+
 
 ---
 

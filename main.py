@@ -375,7 +375,11 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
     elif choice == "0":
         raise KeyboardInterrupt
     elif choice == "1":
-        upnext.auto_dj_transition(current_song, current_artist)
+        upnext.auto_dj_enabled = not upnext.auto_dj_enabled
+        state = "enabled" if upnext.auto_dj_enabled else "disabled"
+        notify(f"Auto-DJ {state}", style="cyan")
+        if upnext.auto_dj_enabled:
+            upnext.maintain_queue(current_song, current_artist)
     elif choice == "2":
         upnext.queue_one_song(current_song, current_artist)
     elif choice == "3":
@@ -497,7 +501,11 @@ def main():
                     notify(f"🔄 Track changed: {current_song} by {current_artist}", style="cyan")
                     lyrics_manager.start(current_song, current_artist, album_name, duration_ms)
                     sync_with_lastfm(current_song, current_artist)
+                    if upnext.auto_dj_enabled:
+                        upnext.maintain_queue(current_song, current_artist)
                 lyrics_manager.sync(progress_ms)
+                if upnext.auto_dj_enabled:
+                    upnext.maintain_queue(current_song, current_artist)
                 live.update(create_layout(current_song, current_artist))
                 if not user_input_queue.empty():
                     choice = user_input_queue.get()

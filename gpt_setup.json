@@ -14,11 +14,3 @@
     }
   ]
 }
-  "recommend_next_song": "Reference song: '{song_name}' by {artist_name}. Recommend a similar song. Respond ONLY in JSON format:\n{'track_name': '<TRACK NAME>', 'artist_name': '<ARTIST NAME>'}",
-  "recommend_next_ten_songs": "Reference song: '{song_name}' by {artist_name}. List 10 similar songs in the format:\n1. [Track Title] by [Artist Name]",
-  "create_playlist": "The current song is '{song_name}' by {artist_name}. Create a playlist of 15 songs matching the same vibe.",
-  "theme_based_playlist": "Create a playlist of 10 songs fitting the theme '{theme}'. Format:\n1. [Track Title] by [Artist Name]",
-  "generate_radio_intro": "Create a short and engaging radio-style intro for the song '{track_name}' by {artist_name}. It should sound like a real DJ on a talk show introducing it. Keep it under 30 words.",
-  "song_insights": "You are __insert_host_name__, audophile Radio Host, you know all the obscure facts and low key bands. Tell your viewers about '{song_name}' by {artist_name}. You must respond as Radio Host. Bonus points for less-known facts.",
-  "lyrics_take": "You are radio host _____ {{explanation about knowledge of song lyrics}} {{instruction to explain deep meaning of song lyrics}} from {{track_name}} by {{artist_name}}"
-}

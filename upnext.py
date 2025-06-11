@@ -21,13 +21,29 @@ class UpNextManager:
         self.queue = []
         self.mode = "smart"
         self.console = Console()
+        self.auto_dj_enabled = False
+        self.recent_tracks: list[tuple[str, str]] = []
 
     def _queue_track(self, track_name: str, artist_name: str) -> bool:
         """Search Spotify and queue the track if found."""
+        if not track_name or not artist_name:
+            return False
+        if (track_name, artist_name) in self.recent_tracks:
+            self.dj.logger.info(
+                f"Skipping recently played track: {track_name} by {artist_name}"
+            )
+            return False
+        if any(
+            t["track_name"] == track_name and t["artist_name"] == artist_name
+            for t in self.queue
+        ):
+            return False
         uri = self.sp.search_track(track_name, artist_name)
         if uri:
             self.sp.add_to_queue(uri)
-            self.queue.append({"track_name": track_name, "artist_name": artist_name})
+            self.queue.append(
+                {"track_name": track_name, "artist_name": artist_name}
+            )
             self.dj.logger.info(f"Queued track: {track_name} by {artist_name}")
             return True
         self.dj.logger.warning(
@@ -49,7 +65,29 @@ class UpNextManager:
         self.mode = "playlist" if self.mode == "smart" else "smart"
         self.console.print(Panel(f"[bold cyan]Switched to [green]{self.mode}[/green] mode.[/bold cyan]"))
 
-    def auto_dj_transition(self, current_song, current_artist):
+    def maintain_queue(self, current_song: str, current_artist: str) -> None:
+        """Fill the queue when auto-DJ mode is enabled.
+
+        The currently playing track is recorded to avoid immediate repeats.
+        Additional recommendations are queued until five songs are
+        pending or a recommendation fails.
+        """
+
+        if current_song and current_artist:
+            track = (current_song, current_artist)
+            if not self.recent_tracks or self.recent_tracks[-1] != track:
+                self.recent_tracks.append(track)
+                if len(self.recent_tracks) > 100:
+                    self.recent_tracks.pop(0)
+
+        while self.auto_dj_enabled and len(self.queue) < 5:
+            if not self.auto_dj_transition(current_song, current_artist):
+                break
+
+        if len(self.queue) > 5:
+            self.queue = self.queue[-5:]
+
+    def auto_dj_transition(self, current_song, current_artist) -> bool:
         prompt = self.templates["auto_dj"].format(song_name=current_song, artist_name=current_artist)
         resp = self.dj.ask(prompt)
         self.dj.logger.info(f"[auto_dj_transition] Prompt:\n{prompt}")
@@ -65,14 +103,16 @@ class UpNextManager:
                     self.console.print(
                         Panel(intro, title=" DJ Intro", border_style="blue")
                     )
-                else:
-                    self.console.print(
-                        f"[red] Could not find: {track_name} by {artist_name}[/red]"
-                    )
+                    return True
+                self.console.print(
+                    f"[red] Could not find: {track_name} by {artist_name}[/red]"
+                )
+                return False
             else:
                 self.dj.logger.warning("Missing track data in GPT response.")
         except Exception as e:
             self.dj.logger.error(f"Error parsing GPT response as JSON: {e}")
+        return False
 
     def queue_one_song(self, song_name, artist_name):
         prompt = self.templates["recommend_next_song"].format(song_name=song_name, artist_name=artist_name)

@@ -36,26 +36,9 @@ pip install -r requirements.txt
 cp example.env .env
 ```
 
-Update `.env` with your Spotify Client ID, Secret, and Redirect URI.
-
-### Configuration
-
-Create a ``settings.json`` file in the project root (one is provided with
-defaults). It controls the DJ persona and chatter level:
-
-```json
-{
-  "host_name": "Buzz Navarro",
-  "intro_count": 3,
-  "chatter_level": "normal"
-}
-```
-
-- ``host_name`` – the DJ voice used in prompts
-- ``intro_count`` – how many radio intros are printed each session
-- ``chatter_level`` – ``silent`` disables intros, ``normal`` uses short intros,
-  ``talkative`` uses detailed commentary
-
+Edit `.env` using the keys shown in `example.env`. At minimum provide your
+Spotify credentials and `OPENAI_API_KEY`. You may also supply Last.fm
+values if you want scrobbling support.
 ## Optional: Using `spotifyd` on Linux
 
 On systems like Arch Linux you can run a headless Spotify client with [`spotifyd`](https://github.com/Spotifyd/spotifyd). Start `spotifyd` before running RadioFreeDJ so that the Spotify Web API has an active device to queue tracks to.

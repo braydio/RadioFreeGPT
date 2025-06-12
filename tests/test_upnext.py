@@ -1,6 +1,8 @@
 import sys, os
+
 os.environ.setdefault("GENIUS_API_TOKEN", "dummy")
 import unittest
+
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from upnext import UpNextManager
@@ -11,14 +13,17 @@ class DummyDJ:
         class L:
             def info(self, *a, **k):
                 pass
+
             def warning(self, *a, **k):
                 pass
+
             def error(self, *a, **k):
                 pass
+
         self.logger = L()
 
     def ask(self, prompt):
-        return '{}'
+        return "{}"
 
 
 class DummySpotify:
@@ -53,6 +58,14 @@ class UpNextTest(unittest.TestCase):
         mgr.maintain_queue("Current", "Artist")
         self.assertEqual(len(mgr.queue), 5)
         self.assertIn(("Current", "Artist"), mgr.recent_tracks)
+
+    def test_queue_track_duplicate_prevention(self):
+        mgr = UpNextManager(DummyDJ(), DummySpotify(), {})
+        first_add = mgr._queue_track("Song", "Artist")
+        second_add = mgr._queue_track("Song", "Artist")
+        self.assertTrue(first_add)
+        self.assertFalse(second_add)
+        self.assertEqual(len(mgr.queue), 1)
 
 
 if __name__ == "__main__":

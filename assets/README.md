@@ -36,7 +36,9 @@ pip install -r requirements.txt
 cp example.env .env
 ```
 
-Update `.env` with your Spotify Client ID, Secret, and Redirect URI.
+Edit `.env` using the keys shown in `example.env`. At minimum provide your
+Spotify credentials and `OPENAI_API_KEY`. You may also supply Last.fm
+values if you want scrobbling support.
 
 ---
 
@@ -52,18 +54,11 @@ RadioFreeGPT supports optional Last.fm integration for scrobbling tracks and sub
 ```env
 LASTFM_API_KEY=your_key_here
 LASTFM_API_SECRET=your_secret_here
-LASTFM_USERNAME=your_username
-LASTFM_PASSWORD_HASH=your_password_md5
 ```
 
-To get the MD5 hash of your password (Note: this method is rather insecure and has been replaced by standard OAuth in most modern applications, do so at your own risk):
-
-```python
-import hashlib
-print(hashlib.md5("your_password".encode()).hexdigest())
-```
-
-3. The app will automatically submit track data to Last.fm when this configuration is present.
+3. Run `python main.py` once and follow the authorization link that appears.
+   After approving access, a `LASTFM_SESSION_KEY` will be stored in your `.env`
+   file for future sessions.
 
 ---
 

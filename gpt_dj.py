@@ -1,4 +1,4 @@
-
+"""Provide GPT responses for RadioFreeDJ using OpenAI or a local model."""
 
 import os
 import openai

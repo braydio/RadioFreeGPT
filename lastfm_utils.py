@@ -44,8 +44,8 @@ def get_network():
     network = pylast.LastFMNetwork(api_key=API_KEY, api_secret=API_SECRET)
     sg = pylast.SessionKeyGenerator(network)
     url = sg.get_web_auth_url()
-    print(f"Authorize RadioFreeGPT with Last.fm: {url}")
-    input("Press Enter after authorization...")
+    print(f"Press Enter to Authorize RadioFreeGPT with Last.fm: {url}")
+    input("Please press Enter once more...")
     try:
         session_key = sg.get_web_auth_session_key(url)
     except Exception as e:  # noqa: BLE001

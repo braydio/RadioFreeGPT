@@ -9,7 +9,6 @@ import os
 from gpt_utils import parse_json_response
 from rich.console import Console
 from rich.panel import Panel
-from rich.text import Text
 from rich.prompt import Prompt
 from genius_utils import get_lyrics
 
@@ -140,7 +139,6 @@ class UpNextManager:
         self.dj.logger.warning(
             f"Track not found for queueing: {track_name} by {artist_name}"
         )
-        return False
 
     def show_queue(self):
         if not self.queue:
@@ -172,7 +170,12 @@ class UpNextManager:
                 if len(self.recent_tracks) > 100:
                     self.recent_tracks.pop(0)
 
-        if self.auto_dj_enabled and not self.queue:
+        if (
+            self.auto_dj_enabled
+            and not self.queue
+            and current_song
+            and current_artist
+        ):
             self._auto_dj_batch(current_song, current_artist)
 
         if len(self.queue) > 5:
@@ -215,6 +218,9 @@ class UpNextManager:
 
     def _auto_dj_batch(self, current_song: str, current_artist: str) -> None:
         """Queue a batch of tracks returned by the GPT Auto-DJ."""
+
+        if not current_song or not current_artist:
+            return
 
         prompt = self.templates["auto_dj_batch"].format(
             song_name=current_song, artist_name=current_artist
@@ -324,16 +330,7 @@ class UpNextManager:
         self.show_queue()
 
     def song_insight(self, song_name, artist_name):
-        """Display a deeper song insight using the active host persona."""
-
-        if self.chatter_level == "silent":
-            self.console.print("[dim]DJ commentary disabled.[/dim]")
-            return
-
-        key = (
-            "song_insights_alt" if "sid" in self.host_name.lower() else "song_insights"
-        )
-        prompt = self.templates[key].format(
+        prompt = self.templates["song_insights"].format(
             song_name=song_name, artist_name=artist_name
         )
         response = self.dj.ask(prompt)
@@ -360,25 +357,9 @@ class UpNextManager:
             self.console.print("[red]No lyric explanation generated.[/red]")
 
     def _generate_radio_intro(self, track_name, artist_name):
-        """Return a radio intro using the configured chatter level."""
-
-        if self.chatter_level == "silent":
-            return ""
-
-        if self.chatter_level == "talkative":
-            key = (
-                "song_insights_alt"
-                if "sid" in self.host_name.lower()
-                else "song_insights"
-            )
-            template = self.templates.get(key, self.templates["generate_radio_intro"])
-            prompt = template.format(song_name=track_name, artist_name=artist_name)
-        else:
-            template = self.templates["generate_radio_intro"]
-            prompt = f"You are {self.host_name}. " + template.format(
-                track_name=track_name, artist_name=artist_name
-            )
-
+        prompt = self.templates["generate_radio_intro"].format(
+            track_name=track_name, artist_name=artist_name
+        )
         response = self.dj.ask(prompt)
         return response or " [DJ dead air] No intro available."
 

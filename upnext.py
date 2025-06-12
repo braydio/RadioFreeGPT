@@ -215,3 +215,17 @@ class UpNextManager:
         prompt = self.templates["generate_radio_intro"].format(track_name=track_name, artist_name=artist_name)
         response = self.dj.ask(prompt)
         return response or " [DJ dead air] No intro available."
+
+    def dj_commentary(self, last_song: tuple[str, str], next_song: tuple[str, str]) -> str:
+        """Generate short DJ commentary between tracks."""
+
+        prompt = self.templates["dj_commentary"].format(
+            last_song=f"{last_song[0]} by {last_song[1]}",
+            next_song=f"{next_song[0]} by {next_song[1]}",
+        )
+        response = self.dj.ask(prompt)
+        if response:
+            self.console.print(Panel(response, title=" DJ", border_style="blue"))
+        else:
+            self.console.print("[red]No DJ commentary generated.[/red]")
+        return response or ""

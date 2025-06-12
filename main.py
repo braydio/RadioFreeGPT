@@ -128,6 +128,7 @@ upnext = UpNextManager(gpt_dj, spotify_controller, prompt_templates)
 lyrics_manager = LyricsSyncManager(spotify_controller)
 console = Console()
 last_song = {"name": None, "artist": None, "started": 0}
+auto_dj_counter = 0
 
 # ─────────────────────────────────────────────────────────────
 # Event Notifications
@@ -501,8 +502,18 @@ def main():
                     notify(f"🔄 Track changed: {current_song} by {current_artist}", style="cyan")
                     lyrics_manager.start(current_song, current_artist, album_name, duration_ms)
                     sync_with_lastfm(current_song, current_artist)
+                    global auto_dj_counter
+                    auto_dj_counter += 1
                     if upnext.auto_dj_enabled:
                         upnext.maintain_queue(current_song, current_artist)
+                        if auto_dj_counter % 3 == 0 and upnext.queue:
+                            upnext.dj_commentary(
+                                (last_song["name"], last_song["artist"]),
+                                (
+                                    upnext.queue[0]["track_name"],
+                                    upnext.queue[0]["artist_name"],
+                                ),
+                            )
                 lyrics_manager.sync(progress_ms)
                 if upnext.auto_dj_enabled:
                     upnext.maintain_queue(current_song, current_artist)

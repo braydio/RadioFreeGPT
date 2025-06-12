@@ -61,6 +61,66 @@ class UpNextManager:
         ]
         self.console.print(Panel("\n".join(lines), title="Up Next", border_style="blue"))
 
+    def _queue_track(self, track_name: str, artist_name: str) -> bool:
+        """Search Spotify and queue the track if found."""
+        uri = self.sp.search_track(track_name, artist_name)
+        if uri:
+            self.sp.add_to_queue(uri)
+            self.queue.append({"track_name": track_name, "artist_name": artist_name})
+            self.dj.logger.info(f"Queued track: {track_name} by {artist_name}")
+            return True
+        self.dj.logger.warning(
+            f"Track not found for queueing: {track_name} by {artist_name}"
+        )
+        return False
+
+    def show_queue(self):
+        if not self.queue:
+            self.console.print("[dim]Queue is empty.[/dim]")
+            return
+        lines = [
+            f"{i}. {t['track_name']} - {t['artist_name']}"
+            for i, t in enumerate(self.queue, 1)
+        ]
+        self.console.print(Panel("\n".join(lines), title="Up Next", border_style="blue"))
+
+    def _queue_track(self, track_name: str, artist_name: str) -> bool:
+        """Search Spotify and queue the track if found."""
+        if not track_name or not artist_name:
+            return False
+        if (track_name, artist_name) in self.recent_tracks:
+            self.dj.logger.info(
+                f"Skipping recently played track: {track_name} by {artist_name}"
+            )
+            return False
+        if any(
+            t["track_name"] == track_name and t["artist_name"] == artist_name
+            for t in self.queue
+        ):
+            return False
+        uri = self.sp.search_track(track_name, artist_name)
+        if uri:
+            self.sp.add_to_queue(uri)
+            self.queue.append(
+                {"track_name": track_name, "artist_name": artist_name}
+            )
+            self.dj.logger.info(f"Queued track: {track_name} by {artist_name}")
+            return True
+        self.dj.logger.warning(
+            f"Track not found for queueing: {track_name} by {artist_name}"
+        )
+        return False
+
+    def show_queue(self):
+        if not self.queue:
+            self.console.print("[dim]Queue is empty.[/dim]")
+            return
+        lines = [
+            f"{i}. {t['track_name']} - {t['artist_name']}"
+            for i, t in enumerate(self.queue, 1)
+        ]
+        self.console.print(Panel("\n".join(lines), title="Up Next", border_style="blue"))
+
     def toggle_playlist_mode(self):
         self.mode = "playlist" if self.mode == "smart" else "smart"
         self.console.print(Panel(f"[bold cyan]Switched to [green]{self.mode}[/green] mode.[/bold cyan]"))
@@ -122,7 +182,7 @@ class UpNextManager:
             return
 
         try:
-            track = parse_json_response(response)
+            track = json.loads(response.replace("'", '"'))
             t_name = track.get("track_name") if isinstance(track, dict) else None
             a_name = track.get("artist_name") if isinstance(track, dict) else None
             if self._queue_track(t_name, a_name):

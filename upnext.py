@@ -1,6 +1,11 @@
-"""Manage upcoming tracks and integrate GPT recommendations with Spotify."""
+"""Manage upcoming tracks and integrate GPT recommendations with Spotify.
+
+This module also loads user settings from ``settings.json`` which define the
+DJ host persona, chatter level and the number of intros to display.
+"""
 
 import json
+import os
 from gpt_utils import parse_json_response
 from rich.console import Console
 from rich.panel import Panel
@@ -9,12 +14,28 @@ from rich.prompt import Prompt
 from genius_utils import get_lyrics
 
 
+# --- Load DJ Settings ---
+SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.json")
+DEFAULT_SETTINGS = {
+    "host_name": "Buzz Navarro",
+    "intro_count": 3,
+    "chatter_level": "normal",
+}
+try:
+    with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+        SETTINGS = {**DEFAULT_SETTINGS, **json.load(f)}
+except Exception:
+    SETTINGS = DEFAULT_SETTINGS
+
+
 class UpNextManager:
     @property
     def playlist_mode(self):
         return self.mode == "playlist"
 
-    def __init__(self, gpt_dj, spotify_controller, prompt_templates):
+    def __init__(self, gpt_dj, spotify_controller, prompt_templates, config=None):
+        """Initialize UpNextManager with GPT and Spotify helpers."""
+
         self.dj = gpt_dj
         self.sp = spotify_controller
         self.templates = prompt_templates
@@ -23,6 +44,78 @@ class UpNextManager:
         self.console = Console()
         self.auto_dj_enabled = False
         self.recent_tracks: list[tuple[str, str]] = []
+
+        cfg = config or SETTINGS
+        self.host_name: str = cfg.get("host_name", DEFAULT_SETTINGS["host_name"])
+        self.intro_count: int = int(
+            cfg.get("intro_count", DEFAULT_SETTINGS["intro_count"])
+        )
+        self.chatter_level: str = cfg.get(
+            "chatter_level", DEFAULT_SETTINGS["chatter_level"]
+        )
+        self.intros_shown: int = 0
+
+    def _queue_track(self, track_name: str, artist_name: str) -> bool:
+        """Search Spotify and queue the track if found."""
+        if not track_name or not artist_name:
+            return False
+        if (track_name, artist_name) in self.recent_tracks:
+            self.dj.logger.info(
+                f"Skipping recently played track: {track_name} by {artist_name}"
+            )
+            return False
+        if any(
+            t["track_name"] == track_name and t["artist_name"] == artist_name
+            for t in self.queue
+        ):
+            return False
+        uri = self.sp.search_track(track_name, artist_name)
+        if uri:
+            self.sp.add_to_queue(uri)
+            self.queue.append({"track_name": track_name, "artist_name": artist_name})
+            self.dj.logger.info(f"Queued track: {track_name} by {artist_name}")
+            return True
+        self.dj.logger.warning(
+            f"Track not found for queueing: {track_name} by {artist_name}"
+        )
+        return False
+
+    def show_queue(self):
+        if not self.queue:
+            self.console.print("[dim]Queue is empty.[/dim]")
+            return
+        lines = [
+            f"{i}. {t['track_name']} - {t['artist_name']}"
+            for i, t in enumerate(self.queue, 1)
+        ]
+        self.console.print(
+            Panel("\n".join(lines), title="Up Next", border_style="blue")
+        )
+
+    def _queue_track(self, track_name: str, artist_name: str) -> bool:
+        """Search Spotify and queue the track if found."""
+        uri = self.sp.search_track(track_name, artist_name)
+        if uri:
+            self.sp.add_to_queue(uri)
+            self.queue.append({"track_name": track_name, "artist_name": artist_name})
+            self.dj.logger.info(f"Queued track: {track_name} by {artist_name}")
+            return True
+        self.dj.logger.warning(
+            f"Track not found for queueing: {track_name} by {artist_name}"
+        )
+        return False
+
+    def show_queue(self):
+        if not self.queue:
+            self.console.print("[dim]Queue is empty.[/dim]")
+            return
+        lines = [
+            f"{i}. {t['track_name']} - {t['artist_name']}"
+            for i, t in enumerate(self.queue, 1)
+        ]
+        self.console.print(
+            Panel("\n".join(lines), title="Up Next", border_style="blue")
+        )
 
     def _queue_track(self, track_name: str, artist_name: str) -> bool:
         """Search Spotify and queue the track if found."""
@@ -105,10 +198,16 @@ class UpNextManager:
             artist_name = parsed.get("artist_name") if parsed else None
             if track_name and artist_name:
                 if self._queue_track(track_name, artist_name):
-                    intro = self._generate_radio_intro(track_name, artist_name)
-                    self.console.print(
-                        Panel(intro, title=" DJ Intro", border_style="blue")
-                    )
+                    if (
+                        self.chatter_level != "silent"
+                        and self.intros_shown < self.intro_count
+                    ):
+                        intro = self._generate_radio_intro(track_name, artist_name)
+                        if intro:
+                            self.console.print(
+                                Panel(intro, title=" DJ Intro", border_style="blue")
+                            )
+                            self.intros_shown += 1
                     return True
                 self.console.print(
                     f"[red] Could not find: {track_name} by {artist_name}[/red]"
@@ -201,7 +300,16 @@ class UpNextManager:
         self.show_queue()
 
     def song_insight(self, song_name, artist_name):
-        prompt = self.templates["song_insights"].format(
+        """Display a deeper song insight using the active host persona."""
+
+        if self.chatter_level == "silent":
+            self.console.print("[dim]DJ commentary disabled.[/dim]")
+            return
+
+        key = (
+            "song_insights_alt" if "sid" in self.host_name.lower() else "song_insights"
+        )
+        prompt = self.templates[key].format(
             song_name=song_name, artist_name=artist_name
         )
         response = self.dj.ask(prompt)
@@ -228,9 +336,25 @@ class UpNextManager:
             self.console.print("[red]No lyric explanation generated.[/red]")
 
     def _generate_radio_intro(self, track_name, artist_name):
-        prompt = self.templates["generate_radio_intro"].format(
-            track_name=track_name, artist_name=artist_name
-        )
+        """Return a radio intro using the configured chatter level."""
+
+        if self.chatter_level == "silent":
+            return ""
+
+        if self.chatter_level == "talkative":
+            key = (
+                "song_insights_alt"
+                if "sid" in self.host_name.lower()
+                else "song_insights"
+            )
+            template = self.templates.get(key, self.templates["generate_radio_intro"])
+            prompt = template.format(song_name=track_name, artist_name=artist_name)
+        else:
+            template = self.templates["generate_radio_intro"]
+            prompt = f"You are {self.host_name}. " + template.format(
+                track_name=track_name, artist_name=artist_name
+            )
+
         response = self.dj.ask(prompt)
         return response or " [DJ dead air] No intro available."
 

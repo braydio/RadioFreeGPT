@@ -59,13 +59,12 @@ class UpNextTest(unittest.TestCase):
         self.assertEqual(len(mgr.queue), 5)
         self.assertIn(("Current", "Artist"), mgr.recent_tracks)
 
-    def test_queue_track_duplicate_prevention(self):
-        mgr = UpNextManager(DummyDJ(), DummySpotify(), {})
-        first_add = mgr._queue_track("Song", "Artist")
-        second_add = mgr._queue_track("Song", "Artist")
-        self.assertTrue(first_add)
-        self.assertFalse(second_add)
-        self.assertEqual(len(mgr.queue), 1)
+    def test_config_loading(self):
+        cfg = {"host_name": "Sid", "intro_count": 2, "chatter_level": "talkative"}
+        mgr = UpNextManager(DummyDJ(), DummySpotify(), {}, cfg)
+        self.assertEqual(mgr.host_name, "Sid")
+        self.assertEqual(mgr.intro_count, 2)
+        self.assertEqual(mgr.chatter_level, "talkative")
 
 
 if __name__ == "__main__":

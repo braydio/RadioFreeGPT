@@ -1,3 +1,5 @@
+"""Fetch and synchronize track lyrics using `lrclib.net`."""
+
 import time
 import re
 import json

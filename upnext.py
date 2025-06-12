@@ -86,10 +86,24 @@ class UpNextManager:
 
     def _queue_track(self, track_name: str, artist_name: str) -> bool:
         """Search Spotify and queue the track if found."""
+        if not track_name or not artist_name:
+            return False
+        if (track_name, artist_name) in self.recent_tracks:
+            self.dj.logger.info(
+                f"Skipping recently played track: {track_name} by {artist_name}"
+            )
+            return False
+        if any(
+            t["track_name"] == track_name and t["artist_name"] == artist_name
+            for t in self.queue
+        ):
+            return False
         uri = self.sp.search_track(track_name, artist_name)
         if uri:
             self.sp.add_to_queue(uri)
-            self.queue.append({"track_name": track_name, "artist_name": artist_name})
+            self.queue.append(
+                {"track_name": track_name, "artist_name": artist_name}
+            )
             self.dj.logger.info(f"Queued track: {track_name} by {artist_name}")
             return True
         self.dj.logger.warning(
@@ -149,14 +163,16 @@ class UpNextManager:
                     self.console.print(
                         Panel(intro, title=" DJ Intro", border_style="blue")
                     )
-                else:
-                    self.console.print(
-                        f"[red] Could not find: {track_name} by {artist_name}[/red]"
-                    )
+                    return True
+                self.console.print(
+                    f"[red] Could not find: {track_name} by {artist_name}[/red]"
+                )
+                return False
             else:
                 self.dj.logger.warning("Missing track data in GPT response.")
         except Exception as e:
             self.dj.logger.error(f"Error parsing GPT response as JSON: {e}")
+        return False
 
     def queue_one_song(self, song_name, artist_name):
         prompt = self.templates["recommend_next_song"].format(song_name=song_name, artist_name=artist_name)

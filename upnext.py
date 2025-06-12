@@ -163,12 +163,7 @@ class UpNextManager:
         )
 
     def maintain_queue(self, current_song: str, current_artist: str) -> None:
-        """Fill the queue when auto-DJ mode is enabled.
-
-        The currently playing track is recorded to avoid immediate repeats.
-        Additional recommendations are queued until five songs are
-        pending or a recommendation fails.
-        """
+        """Ensure the queue is populated when Auto-DJ mode is active."""
 
         if current_song and current_artist:
             track = (current_song, current_artist)
@@ -177,9 +172,8 @@ class UpNextManager:
                 if len(self.recent_tracks) > 100:
                     self.recent_tracks.pop(0)
 
-        while self.auto_dj_enabled and len(self.queue) < 5:
-            if not self.auto_dj_transition(current_song, current_artist):
-                break
+        if self.auto_dj_enabled and not self.queue:
+            self._auto_dj_batch(current_song, current_artist)
 
         if len(self.queue) > 5:
             self.queue = self.queue[-5:]
@@ -218,6 +212,36 @@ class UpNextManager:
         except Exception as e:
             self.dj.logger.error(f"Error parsing GPT response as JSON: {e}")
         return False
+
+    def _auto_dj_batch(self, current_song: str, current_artist: str) -> None:
+        """Queue a batch of tracks returned by the GPT Auto-DJ."""
+
+        prompt = self.templates["auto_dj_batch"].format(
+            song_name=current_song, artist_name=current_artist
+        )
+        resp = self.dj.ask(prompt)
+        self.dj.logger.info(f"[auto_dj_batch] Prompt:\n{prompt}")
+        self.dj.logger.info(f"[auto_dj_batch] Raw Response:\n{resp}")
+
+        try:
+            items = json.loads(resp)
+            if isinstance(items, dict):
+                items = [items]
+        except Exception as e:
+            self.dj.logger.error(f"Error parsing GPT batch response: {e}")
+            return
+
+        for item in items:
+            track_name = item.get("track_name")
+            artist_name = item.get("artist_name")
+            intro = item.get("intro")
+            if self._queue_track(track_name, artist_name):
+                if intro:
+                    self.console.print(
+                        Panel(intro, title=" DJ Intro", border_style="blue")
+                    )
+            if len(self.queue) >= 5:
+                break
 
     def queue_one_song(self, song_name, artist_name):
         prompt = self.templates["recommend_next_song"].format(

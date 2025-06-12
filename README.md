@@ -36,7 +36,9 @@ pip install -r requirements.txt
 cp example.env .env
 ```
 
-Update `.env` with your Spotify Client ID, Secret, and Redirect URI.
+Edit `.env` using the keys shown in `example.env`. At minimum provide your
+Spotify credentials and `OPENAI_API_KEY`. You may also supply Last.fm
+values if you want scrobbling support.
 ## Optional: Using `spotifyd` on Linux
 
 On systems like Arch Linux you can run a headless Spotify client with [`spotifyd`](https://github.com/Spotifyd/spotifyd). Start `spotifyd` before running RadioFreeDJ so that the Spotify Web API has an active device to queue tracks to.

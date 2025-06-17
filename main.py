@@ -468,6 +468,37 @@ def sync_with_lastfm(song_name, artist_name):
     update_now_playing(song_name, artist_name)
 
 
+def fetch_playback_item(max_retries: int = 10, delay: float = 0.2) -> dict:
+    """Return the current playback item with limited retries.
+
+    Parameters
+    ----------
+    max_retries:
+        Number of attempts before giving up.
+    delay:
+        Seconds to wait between retries.
+
+    Returns
+    -------
+    dict
+        Playback item dictionary (may be empty if unavailable).
+    """
+    item: dict = {}
+    for _ in range(max_retries):
+        try:
+            playback = spotify_controller.sp.current_playback()
+            item = playback.get("item", {}) if playback else {}
+            if item.get("duration_ms", 0) >= 1000:
+                return item
+        except (ReadTimeout, RequestException) as e:
+            logger.warning(f"Spotify API error: {e}")
+        time.sleep(delay)
+    logger.warning(
+        f"Playback details unavailable after {max_retries} attempts"
+    )
+    return item
+
+
 def main():
     global last_song, show_lyrics, show_gpt_log, lyrics_view_mode, lyrics_cursor
     try:
@@ -480,17 +511,8 @@ def main():
             )
             time.sleep(3)
             song_name, artist_name = spotify_controller.get_current_song()
-        while True:
-            try:
-                playback = spotify_controller.sp.current_playback()
-                item = playback.get("item", {}) if playback else {}
-                duration_ms = item.get("duration_ms", 0)
-            except ReadTimeout:
-                notify("Spotify API timeout (startup), retrying...", style="red")
-                continue
-            if duration_ms >= 1000:
-                break
-            time.sleep(0.2)
+        item = fetch_playback_item()
+        duration_ms = item.get("duration_ms", 0)
         album_name = item.get("album", {}).get("name", "")
         last_song = {
             "name": song_name,
@@ -529,17 +551,8 @@ def main():
                         "artist": current_artist,
                         "started": int(time.time()),
                     }
-                    while True:
-                        try:
-                            play2 = spotify_controller.sp.current_playback()
-                            item2 = play2.get("item", {}) if play2 else {}
-                            duration_ms = item2.get("duration_ms", 0)
-                        except (ReadTimeout, RequestException):
-                            time.sleep(0.2)
-                            continue
-                        if duration_ms >= 1000:
-                            break
-                        time.sleep(0.2)
+                    item2 = fetch_playback_item()
+                    duration_ms = item2.get("duration_ms", 0)
                     album_name = item2.get("album", {}).get("name", "")
                     notify(
                         f"🔄 Track changed: {current_song} by {current_artist}",

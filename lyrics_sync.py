@@ -1,9 +1,8 @@
-"""Fetch and synchronize track lyrics using `lrclib.net`."""
+"""Utilities for fetching and synchronizing song lyrics."""
 
-import time
-import re
 import json
-from rich.text import Text
+import re
+import threading
 from genius_utils import get_lyrics
 import requests
 from requests.exceptions import RequestException
@@ -17,13 +16,27 @@ class LyricsSyncManager:
 
     def __init__(self, spotify_controller):
         self.spotify = spotify_controller
-        self.timestamps = []
-        self.lines = []
+        self.timestamps: list[int] = []
+        self.lines: list[str] = []
         self.current_index = 0
         self.logger = logger
+        self._fetch_thread: threading.Thread | None = None
+        self.fetching = False
 
     def start(self, track_name, artist_name, album_name="", duration_ms=0):
+        """Start fetching lyrics in a background thread."""
         self.current_index = 0
+        self.timestamps = []
+        self.lines = []
+        self.fetching = True
+
+        args = (track_name, artist_name, album_name, duration_ms)
+        self._fetch_thread = threading.Thread(
+            target=self._load_lyrics, args=args, daemon=True
+        )
+        self._fetch_thread.start()
+
+    def _load_lyrics(self, track_name, artist_name, album_name, duration_ms):
         try:
             ts, ls = self.fetch_lyrics(
                 artist_name=artist_name,
@@ -39,6 +52,13 @@ class LyricsSyncManager:
             self.logger.warning(f"No lyrics for '{track_name}' by '{artist_name}': {e}")
             self.timestamps = [0]
             self.lines = ["[dim]No lyrics found[/dim]"]
+        finally:
+            self.fetching = False
+
+    @property
+    def ready(self) -> bool:
+        """Return True when lyrics have been fetched."""
+        return not self.fetching and bool(self.lines)
 
     def fetch_lyrics(self, artist_name, track_name, album_name, duration_ms):
         # skip any sub‑one‑second durations

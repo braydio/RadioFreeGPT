@@ -13,6 +13,7 @@
 - GPT-powered DJ commentary and recommendations
 - Spotify integration for playback and control
 - Terminal graphics using `rich` and `textual`
+- Smooth 10 FPS screen updates for responsive UI
 - AI-generated playlists, transitions, and chat
 - Modular design with plugin support for show scripts
 

@@ -77,6 +77,7 @@ python main.py
 ```
 
 Controls and navigation are rendered via the terminal interface.
+Press `?` to display a help popup and close it with `Esc`.
 
 ---
 

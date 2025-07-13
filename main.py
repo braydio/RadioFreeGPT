@@ -59,6 +59,8 @@ COMMAND_LABELS = {
     "g": "Toggle GPT Log",
     "j": "Cursor Down",
     "k": "Cursor Up",
+    "c": "Cancel",
+    "r": "Refresh",
 }
 COMMAND_LOG_FILE = os.path.join(os.path.dirname(__file__), "commands.log")
 
@@ -84,6 +86,8 @@ show_gpt_log = True
 command_log_buffer = []
 notifications = []
 user_input_queue = Queue()
+cancel_event = threading.Event()
+refresh_event = threading.Event()
 
 gpt_log_buffer = []
 
@@ -124,7 +128,9 @@ gpt_dj = RadioFreeDJ(
 
 # === other components ===
 spotify_controller = SpotifyController()
-upnext = UpNextManager(gpt_dj, spotify_controller, prompt_templates)
+upnext = UpNextManager(
+    gpt_dj, spotify_controller, prompt_templates, cancel_event=cancel_event
+)
 lyrics_manager = LyricsSyncManager(spotify_controller)
 console = Console()
 last_song = {"name": None, "artist": None, "started": 0}
@@ -217,6 +223,8 @@ def get_menu_text():
         "[bold]5.[/bold] Queue 10-song theme playlist",
         "[bold]6.[/bold] Get info on current song",
         "[bold]7.[/bold] Explain current song lyrics",
+        "[bold]c.[/bold] Cancel current request",
+        "[bold]r.[/bold] Refresh display",
         f"[bold]t.[/bold] Toggle playback mode ({mode_label} Mode)",
         "[bold]0.[/bold] Quit",
     ]
@@ -302,7 +310,8 @@ def create_layout(song_name, artist_name):
 def recommend_next_song(song_name, artist_name):
     tpl = prompt_templates["recommend_next_song"]
     prompt = tpl.format(song_name=song_name, artist_name=artist_name)
-    resp = gpt_dj.ask(prompt)
+    cancel_event.clear()
+    resp = gpt_dj.ask(prompt, cancel_event=cancel_event)
     log_gpt(prompt, resp)
     if resp:
         console.print(
@@ -314,7 +323,8 @@ def recommend_next_song(song_name, artist_name):
 def create_playlist(song_name, artist_name):
     tpl = prompt_templates["create_playlist"]
     prompt = tpl.format(song_name=song_name, artist_name=artist_name)
-    resp = gpt_dj.ask(prompt)
+    cancel_event.clear()
+    resp = gpt_dj.ask(prompt, cancel_event=cancel_event)
     log_gpt(prompt, resp)
     logger.info(f"[create_playlist] Prompt:\n{prompt}")
     logger.info(f"[create_playlist] Response:\n{resp}")
@@ -326,7 +336,8 @@ def theme_based_playlist():
     theme = Prompt.ask("Enter a theme").strip()
     tpl = prompt_templates["theme_based_playlist"]
     prompt = tpl.format(theme=theme)
-    resp = gpt_dj.ask(prompt)
+    cancel_event.clear()
+    resp = gpt_dj.ask(prompt, cancel_event=cancel_event)
     log_gpt(prompt, resp)
     logger.info(f"[theme_based_playlist] Prompt:\n{prompt}")
     logger.info(f"[theme_based_playlist] Response:\n{resp}")
@@ -339,7 +350,8 @@ def theme_based_playlist():
 def generate_radio_intro(track_name, artist_name):
     tpl = prompt_templates["generate_radio_intro"]
     prompt = tpl.format(track_name=track_name, artist_name=artist_name)
-    resp = gpt_dj.ask(prompt)
+    cancel_event.clear()
+    resp = gpt_dj.ask(prompt, cancel_event=cancel_event)
     log_gpt(prompt, resp)
     logger.info(f"[generate_radio_intro] Prompt:\n{prompt}")
     logger.info(f"[generate_radio_intro] Response:\n{resp}")
@@ -349,7 +361,8 @@ def generate_radio_intro(track_name, artist_name):
 def song_insights(song_name, artist_name):
     tpl = prompt_templates["song_insights"]
     prompt = tpl.format(song_name=song_name, artist_name=artist_name)
-    resp = gpt_dj.ask(prompt)
+    cancel_event.clear()
+    resp = gpt_dj.ask(prompt, cancel_event=cancel_event)
     log_gpt(prompt, resp)
     logger.info(f"[song_insights] Prompt:\n{prompt}")
     logger.info(f"[song_insights] Response:\n{resp}")
@@ -419,6 +432,12 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
             f"Queue mode: {'Playlist' if upnext.mode == 'playlist' else 'Smart'}",
             style="magenta",
         )
+    elif choice == "c":
+        cancel_event.set()
+        notify("Cancelled current request", style="red")
+    elif choice == "r":
+        refresh_event.set()
+        notify("Refreshing display", style="cyan")
     elif choice == "toggle_play":
         playback = spotify_controller.sp.current_playback()
         if playback and playback.get("is_playing"):
@@ -493,9 +512,7 @@ def fetch_playback_item(max_retries: int = 10, delay: float = 0.2) -> dict:
         except (ReadTimeout, RequestException) as e:
             logger.warning(f"Spotify API error: {e}")
         time.sleep(delay)
-    logger.warning(
-        f"Playback details unavailable after {max_retries} attempts"
-    )
+    logger.warning(f"Playback details unavailable after {max_retries} attempts")
     return item
 
 
@@ -578,6 +595,9 @@ def main():
                 if upnext.auto_dj_enabled:
                     upnext.maintain_queue(current_song, current_artist)
                 live.update(create_layout(current_song, current_artist))
+                if refresh_event.is_set():
+                    live.refresh()
+                    refresh_event.clear()
                 if not user_input_queue.empty():
                     choice = user_input_queue.get()
                     process_user_input(choice, current_song, current_artist)

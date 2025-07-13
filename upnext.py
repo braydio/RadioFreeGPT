@@ -32,12 +32,34 @@ class UpNextManager:
     def playlist_mode(self):
         return self.mode == "playlist"
 
-    def __init__(self, gpt_dj, spotify_controller, prompt_templates, config=None):
-        """Initialize UpNextManager with GPT and Spotify helpers."""
+    def __init__(
+        self,
+        gpt_dj,
+        spotify_controller,
+        prompt_templates,
+        config=None,
+        cancel_event=None,
+    ):
+        """Initialize UpNextManager with GPT and Spotify helpers.
+
+        Parameters
+        ----------
+        gpt_dj:
+            Instance used for GPT requests.
+        spotify_controller:
+            Playback controller used for queueing.
+        prompt_templates:
+            Dictionary of prompt templates.
+        config:
+            Optional settings overrides.
+        cancel_event:
+            Event used to signal cancellation of GPT calls.
+        """
 
         self.dj = gpt_dj
         self.sp = spotify_controller
         self.templates = prompt_templates
+        self.cancel_event = cancel_event
         self.queue = []
         self.mode = "smart"
         self.console = Console()
@@ -120,7 +142,9 @@ class UpNextManager:
         prompt = self.templates["auto_dj"].format(
             song_name=current_song, artist_name=current_artist
         )
-        resp = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        resp = self.dj.ask(prompt, cancel_event=self.cancel_event)
         self.dj.logger.info(f"[auto_dj_transition] Prompt:\n{prompt}")
         self.dj.logger.info(f"[auto_dj_transition] Raw Response:\n{resp}")
 
@@ -160,7 +184,9 @@ class UpNextManager:
         prompt = self.templates["auto_dj_batch"].format(
             song_name=current_song, artist_name=current_artist
         )
-        resp = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        resp = self.dj.ask(prompt, cancel_event=self.cancel_event)
         self.dj.logger.info(f"[auto_dj_batch] Prompt:\n{prompt}")
         self.dj.logger.info(f"[auto_dj_batch] Raw Response:\n{resp}")
 
@@ -188,7 +214,9 @@ class UpNextManager:
         prompt = self.templates["recommend_next_song"].format(
             song_name=song_name, artist_name=artist_name
         )
-        response = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        response = self.dj.ask(prompt, cancel_event=self.cancel_event)
         if not response:
             self.console.print("[red]No song queued.[/red]")
             return
@@ -213,7 +241,9 @@ class UpNextManager:
         prompt = self.templates["recommend_next_ten_songs"].format(
             song_name=song_name, artist_name=artist_name
         )
-        response = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        response = self.dj.ask(prompt, cancel_event=self.cancel_event)
         if not response:
             self.console.print("[red]No songs queued.[/red]")
             return
@@ -244,7 +274,9 @@ class UpNextManager:
         self._parse_and_queue_playlist(prompt)
 
     def _parse_and_queue_playlist(self, prompt):
-        response = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        response = self.dj.ask(prompt, cancel_event=self.cancel_event)
         if not response:
             self.console.print("[red]Playlist creation failed.[/red]")
             return
@@ -268,7 +300,9 @@ class UpNextManager:
         prompt = self.templates["song_insights"].format(
             song_name=song_name, artist_name=artist_name
         )
-        response = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        response = self.dj.ask(prompt, cancel_event=self.cancel_event)
         if response:
             self.console.print(Panel(response, title=" Insight", border_style="cyan"))
         else:
@@ -283,7 +317,9 @@ class UpNextManager:
         prompt = self.templates["explain_lyrics"].format(
             song_name=song_name, artist_name=artist_name, lyrics=lyrics
         )
-        response = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        response = self.dj.ask(prompt, cancel_event=self.cancel_event)
         if response:
             self.console.print(
                 Panel(response, title=" Lyric Breakdown", border_style="cyan")
@@ -295,7 +331,9 @@ class UpNextManager:
         prompt = self.templates["generate_radio_intro"].format(
             track_name=track_name, artist_name=artist_name
         )
-        response = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        response = self.dj.ask(prompt, cancel_event=self.cancel_event)
         return response or " [DJ dead air] No intro available."
 
     def dj_commentary(
@@ -307,7 +345,9 @@ class UpNextManager:
             last_song=f"{last_song[0]} by {last_song[1]}",
             next_song=f"{next_song[0]} by {next_song[1]}",
         )
-        response = self.dj.ask(prompt)
+        if self.cancel_event:
+            self.cancel_event.clear()
+        response = self.dj.ask(prompt, cancel_event=self.cancel_event)
         if response:
             self.console.print(Panel(response, title=" DJ", border_style="blue"))
         else:

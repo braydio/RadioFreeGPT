@@ -53,6 +53,8 @@ COMMAND_LABELS = {
     "5": "Queue Theme Playlist",
     "6": "Song Insight",
     "7": "Lyric Breakdown",
+    "b": "Restart Track",
+    "e": "Skip to End",
     "t": "Toggle Mode",
     "0": "Quit",
     "l": "Toggle Lyrics View",
@@ -217,6 +219,8 @@ def get_menu_text():
         "[bold]5.[/bold] Queue 10-song theme playlist",
         "[bold]6.[/bold] Get info on current song",
         "[bold]7.[/bold] Explain current song lyrics",
+        "[bold]b.[/bold] Restart current song",
+        "[bold]e.[/bold] Skip to song end",
         f"[bold]t.[/bold] Toggle playback mode ({mode_label} Mode)",
         "[bold]0.[/bold] Quit",
     ]
@@ -413,6 +417,12 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         upnext.song_insight(current_song, current_artist)
     elif choice == "7":
         upnext.explain_lyrics(current_song, current_artist)
+    elif choice == "b":
+        spotify_controller.restart_track()
+        notify("↩ Restarted track.", style="yellow")
+    elif choice == "e":
+        spotify_controller.skip_to_end()
+        notify("⏭ Skipped to end of track.", style="yellow")
     elif choice == "t":
         upnext.toggle_playlist_mode()
         notify(

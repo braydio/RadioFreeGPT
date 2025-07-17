@@ -14,6 +14,7 @@
 - Spotify integration for playback and control
 - Terminal graphics using `rich` and `textual`
 - AI-generated playlists, transitions, and chat
+- Fine-grained playback controls including restart and skip to end
 - Modular design with plugin support for show scripts
 
 ---

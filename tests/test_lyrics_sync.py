@@ -1,9 +1,10 @@
+import sys, os
 import unittest
 import time
-import os
 
 os.environ.setdefault("GENIUS_API_TOKEN", "dummy")
 
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from lyrics_sync import LyricsSyncManager
 
 
@@ -34,6 +35,35 @@ class LyricsSyncTest(unittest.TestCase):
         self.assertTrue(mgr.ready)
         self.assertEqual(mgr.lines, ["line1", "line2"])
 
+    def test_prefetch_then_start_uses_cache(self):
+        mgr = LyricsSyncManager(DummySpotify())
+
+        call_count = 0
+
+        def fake_fetch(*a, **k):
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.05)
+            return [0], ["cached"]
+
+        mgr.fetch_lyrics = fake_fetch
+
+        mgr.prefetch("Song", "Artist", duration_ms=2000)
+        # give prefetch thread time to populate cache
+        time.sleep(0.2)
+
+        self.assertEqual(call_count, 1)
+
+        start_time = time.time()
+        mgr.start("Song", "Artist", duration_ms=2000)
+        duration = time.time() - start_time
+
+        self.assertLess(duration, 0.05)
+        self.assertEqual(call_count, 1)
+        self.assertTrue(mgr.ready)
+        self.assertEqual(mgr.lines, ["cached"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

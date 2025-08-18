@@ -509,6 +509,46 @@ def fetch_playback_item(max_retries: int = 10, delay: float = 0.2) -> dict:
     return item
 
 
+def handle_track_change(prev_song: dict, current_song: str, current_artist: str) -> None:
+    """Perform network-heavy tasks when the track changes.
+
+    This function runs in a background thread so the main UI loop stays
+    responsive when a new song starts playing.
+
+    Parameters
+    ----------
+    prev_song:
+        Dictionary containing the previously playing song's details.
+    current_song:
+        Title of the new song.
+    current_artist:
+        Artist of the new song.
+    """
+
+    item2 = fetch_playback_item()
+    duration_ms = item2.get("duration_ms", 0)
+    album_name = item2.get("album", {}).get("name", "")
+
+    notify(
+        f"🔄 Track changed: {current_song} by {current_artist}", style="cyan"
+    )
+    lyrics_manager.start(current_song, current_artist, album_name, duration_ms)
+    sync_with_lastfm(current_song, current_artist)
+
+    global auto_dj_counter
+    auto_dj_counter += 1
+    if upnext.auto_dj_enabled:
+        upnext.maintain_queue(current_song, current_artist)
+        if auto_dj_counter % 3 == 0 and upnext.queue:
+            upnext.dj_commentary(
+                (prev_song.get("name"), prev_song.get("artist")),
+                (
+                    upnext.queue[0]["track_name"],
+                    upnext.queue[0]["artist_name"],
+                ),
+            )
+
+
 def main():
     global last_song, show_lyrics, show_gpt_log, lyrics_view_mode, lyrics_cursor
     try:
@@ -554,38 +594,21 @@ def main():
                     last_song["name"],
                     last_song["artist"],
                 ):
-                    if last_song["name"] and last_song["artist"]:
+                    prev_song = last_song.copy()
+                    if prev_song["name"] and prev_song["artist"]:
                         scrobble(
-                            last_song["name"], last_song["artist"], last_song["started"]
+                            prev_song["name"], prev_song["artist"], prev_song["started"]
                         )
                     last_song = {
                         "name": current_song,
                         "artist": current_artist,
                         "started": int(time.time()),
                     }
-                    item2 = fetch_playback_item()
-                    duration_ms = item2.get("duration_ms", 0)
-                    album_name = item2.get("album", {}).get("name", "")
-                    notify(
-                        f"🔄 Track changed: {current_song} by {current_artist}",
-                        style="cyan",
-                    )
-                    lyrics_manager.start(
-                        current_song, current_artist, album_name, duration_ms
-                    )
-                    sync_with_lastfm(current_song, current_artist)
-                    global auto_dj_counter
-                    auto_dj_counter += 1
-                    if upnext.auto_dj_enabled:
-                        upnext.maintain_queue(current_song, current_artist)
-                        if auto_dj_counter % 3 == 0 and upnext.queue:
-                            upnext.dj_commentary(
-                                (last_song["name"], last_song["artist"]),
-                                (
-                                    upnext.queue[0]["track_name"],
-                                    upnext.queue[0]["artist_name"],
-                                ),
-                            )
+                    threading.Thread(
+                        target=handle_track_change,
+                        args=(prev_song, current_song, current_artist),
+                        daemon=True,
+                    ).start()
                 lyrics_manager.sync(progress_ms)
                 if upnext.auto_dj_enabled:
                     upnext.maintain_queue(current_song, current_artist)

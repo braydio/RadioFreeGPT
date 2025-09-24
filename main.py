@@ -449,6 +449,11 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         notify(f"Auto-DJ {state}", style="cyan")
         if upnext.auto_dj_enabled:
             upnext.maintain_queue(current_song, current_artist)
+            if upnext.queue:
+                lyrics_manager.prefetch(
+                    upnext.queue[0]["track_name"],
+                    upnext.queue[0]["artist_name"],
+                )
     elif choice == "2":
         upnext.queue_one_song(current_song, current_artist)
     elif choice == "3":
@@ -626,17 +631,27 @@ def main():
                     auto_dj_counter += 1
                     if upnext.auto_dj_enabled:
                         upnext.maintain_queue(current_song, current_artist)
-                        if auto_dj_counter % 3 == 0 and upnext.queue:
-                            upnext.dj_commentary(
-                                (last_song["name"], last_song["artist"]),
-                                (
-                                    upnext.queue[0]["track_name"],
-                                    upnext.queue[0]["artist_name"],
-                                ),
+                        if upnext.queue:
+                            lyrics_manager.prefetch(
+                                upnext.queue[0]["track_name"],
+                                upnext.queue[0]["artist_name"],
                             )
+                            if auto_dj_counter % 3 == 0:
+                                upnext.dj_commentary(
+                                    (last_song["name"], last_song["artist"]),
+                                    (
+                                        upnext.queue[0]["track_name"],
+                                        upnext.queue[0]["artist_name"],
+                                    ),
+                                )
                 lyrics_manager.sync(progress_ms)
                 if upnext.auto_dj_enabled:
                     upnext.maintain_queue(current_song, current_artist)
+                    if upnext.queue:
+                        lyrics_manager.prefetch(
+                            upnext.queue[0]["track_name"],
+                            upnext.queue[0]["artist_name"],
+                        )
                 live.update(create_layout(current_song, current_artist))
                 if refresh_event.is_set():
                     live.refresh()

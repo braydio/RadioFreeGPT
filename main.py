@@ -66,6 +66,14 @@ COMMAND_LABELS = {
     "k": "Cursor Up",
     "c": "Cancel",
     "r": "Refresh",
+    "ctrl+u": "GPT Log Up",
+    "ctrl+d": "GPT Log Down",
+    "cu": "GPT Log Up",
+    "cd": "GPT Log Down",
+    "pageup": "GPT Log Up",
+    "pagedown": "GPT Log Down",
+    "page_up": "GPT Log Up",
+    "page_down": "GPT Log Down",
 }
 COMMAND_LOG_FILE = os.path.join(os.path.dirname(__file__), "commands.log")
 
@@ -96,12 +104,16 @@ cancel_event = threading.Event()
 refresh_event = threading.Event()
 
 gpt_log_buffer = []
+gpt_log_scroll = 0
 
 
 GPT_LOG_FILE = os.path.expanduser("~/RadioFree/logs/gpt_log.jsonl")
 
 
 def log_gpt(prompt: str, response: str):
+    """Persist GPT prompt/response pairs and refresh scroll position."""
+
+    global gpt_log_scroll
     entry = {
         "timestamp": datetime.now().isoformat(),
         "prompt": prompt.strip(),
@@ -110,6 +122,10 @@ def log_gpt(prompt: str, response: str):
     gpt_log_buffer.append((entry["prompt"], entry["response"]))
     if len(gpt_log_buffer) > 50:
         gpt_log_buffer.pop(0)
+
+    # Always snap back to the latest response when a new entry arrives so the
+    # log view mirrors fresh GPT output.
+    gpt_log_scroll = 0
 
     try:
         os.makedirs(os.path.dirname(GPT_LOG_FILE), exist_ok=True)
@@ -204,17 +220,62 @@ def render_progress_bar(progress_ms, duration_ms):
     return f"{bar} {int(percent * 100)}%"
 
 
+def _gpt_log_page_size() -> int:
+    """Return the number of log entries that represent a scroll "page"."""
+
+    return max(1, len(gpt_log_buffer) // 2 or 1)
+
+
+def scroll_gpt_log(direction: int) -> None:
+    """Move the GPT log view up or down by half a page of entries."""
+
+    global gpt_log_scroll
+
+    if not gpt_log_buffer:
+        gpt_log_scroll = 0
+        return
+
+    page = _gpt_log_page_size()
+    gpt_log_scroll = max(
+        0,
+        min(gpt_log_scroll + (direction * page), len(gpt_log_buffer) - 1),
+    )
+
+
 def render_gpt_log() -> Text:
-    """Return the latest GPT response formatted with Rich markup."""
+    """Return the GPT response at the current scroll position."""
 
     panel_text = Text()
     if show_gpt_log and gpt_log_buffer:
-        _, latest = gpt_log_buffer[-1]
-        # Parse markup tags in the GPT response so styling is applied
-        panel_text = Text.from_markup(latest, style="cyan")
+        index = max(len(gpt_log_buffer) - 1 - gpt_log_scroll, 0)
+        _prompt, response = gpt_log_buffer[index]
+
+        position = Text.from_markup(
+            f"[dim]Entry {index + 1} of {len(gpt_log_buffer)}[/dim]\n\n"
+        )
+        panel_text.append_text(position)
+
+        # Parse markup tags in the GPT response so styling is applied while
+        # keeping prompts readable in a dimmer style for context.
+        panel_text.append_text(Text.from_markup(response, style="cyan"))
+        if gpt_log_scroll:
+            panel_text.append(
+                f"\n\n[dim]↑ {gpt_log_scroll} page(s) from latest response[/dim]"
+            )
     else:
         panel_text.append("[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]")
     return panel_text
+
+
+def gpt_log_controls_text() -> Text:
+    """Build the subtitle renderable showing GPT log scroll controls."""
+
+    controls = Text()
+    controls.append(" Ctrl+U ", style="bold black on bright_magenta")
+    controls.append("↑  ", style="dim")
+    controls.append(" Ctrl+D ", style="bold black on bright_magenta")
+    controls.append("↓", style="dim")
+    return controls
 
 
 def get_menu_text():
@@ -325,7 +386,13 @@ def create_layout(song_name, artist_name):
         Panel(render_status(), title="󰌪 Status", border_style="green")
     )
     layout["gpt"].update(
-        Panel(render_gpt_log(), title=" RadioFree󰲿", border_style="magenta")
+        Panel(
+            render_gpt_log(),
+            title=" RadioFree󰲿",
+            border_style="magenta",
+            subtitle=gpt_log_controls_text(),
+            subtitle_align="right",
+        )
     )
 
     return layout
@@ -420,6 +487,7 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
     notify(f"Command: {label}", style="green")
 
     global lyrics_view_mode, lyrics_cursor, show_gpt_log, show_help
+    choice_lower = choice.lower()
 
     if choice == "?":
         show_help = True
@@ -429,14 +497,20 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
             show_help = False
         return
 
-    if choice == "l":
+    if choice_lower == "l":
         if lyrics_view_mode == "chunk":
             lyrics_view_mode = "full"
             lyrics_cursor = lyrics_manager.current_index
         else:
             lyrics_view_mode = "chunk"
-    elif choice == "g":
+    elif choice_lower == "g":
         show_gpt_log = not show_gpt_log
+    elif choice_lower in {"ctrl+u", "cu", "pageup", "page_up"}:
+        scroll_gpt_log(direction=1)
+        notify("GPT log scrolled up", style="magenta")
+    elif choice_lower in {"ctrl+d", "cd", "pagedown", "page_down"}:
+        scroll_gpt_log(direction=-1)
+        notify("GPT log scrolled down", style="magenta")
     elif lyrics_view_mode == "full" and choice == "j":
         lyrics_cursor = min(lyrics_cursor + 1, len(lyrics_manager.lines) - 1)
     elif lyrics_view_mode == "full" and choice == "k":

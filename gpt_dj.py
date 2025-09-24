@@ -5,6 +5,7 @@ import openai
 from openai import OpenAIError
 import requests
 import logging
+import threading
 from dotenv import load_dotenv
 from gpt_utils import count_tokens
 from logger_utils import setup_logger
@@ -13,6 +14,7 @@ from rich.text import Text
 from rich.panel import Panel
 
 console = Console()
+
 
 class RadioFreeDJ:
     def __init__(
@@ -53,15 +55,50 @@ class RadioFreeDJ:
             console.print(f"[red]Token count error:[/red] {e}")
             return 0
 
-    def ask(self, prompt: str) -> str | None:
+    def ask(
+        self, prompt: str, cancel_event: threading.Event | None = None
+    ) -> str | None:
+        """Send *prompt* to the active model and return the response.
+
+        Parameters
+        ----------
+        prompt:
+            The user prompt to send to the model.
+        cancel_event:
+            Optional event that, when set, aborts waiting for the response.
+        """
+
         token_count = self.count_tokens(prompt)
         self.logger.debug(f"Prompt sent ({token_count} tokens):\n{prompt}")
-        
+
         console.print(f"[cyan]🔍 Sending to GPT model:[/cyan] {self.active_model}")
         console.print(Panel(prompt, title="🧠 GPT Prompt"))
 
+        def _call_model():
+            return (
+                self._ask_local(prompt)
+                if self.use_local_llm
+                else self._ask_openai(prompt)
+            )
+
         try:
-            response = self._ask_local(prompt) if self.use_local_llm else self._ask_openai(prompt)
+            if cancel_event is None:
+                response = _call_model()
+            else:
+                result: list[str | None] = [None]
+
+                def runner():
+                    result[0] = _call_model()
+
+                t = threading.Thread(target=runner, daemon=True)
+                t.start()
+                while t.is_alive():
+                    if cancel_event.is_set():
+                        self.logger.info("GPT call cancelled by user")
+                        return None
+                    t.join(0.1)
+                response = result[0]
+
             self.logger.info(f"Response for prompt:\n{response}")
             if self.on_response:
                 try:
@@ -81,8 +118,7 @@ class RadioFreeDJ:
             messages.append({"role": "user", "content": prompt})
 
             response = self.client.chat.completions.create(
-                model=self.active_model,
-                messages=messages
+                model=self.active_model, messages=messages
             )
             return response.choices[0].message.content.strip()
         except OpenAIError as e:
@@ -94,14 +130,15 @@ class RadioFreeDJ:
             console.print(Panel(str(e), title="❌ GPT Error", border_style="red"))
             return "[gpt-error]"
 
-
     def _ask_local(self, prompt: str) -> str:
         if not self.local_llm_url:
             raise ValueError("LOCAL_LLM_API is not set in .env")
 
         payload = {"model": self.active_model, "messages": []}
         if self.system_prompt:
-            payload["messages"].append({"role": "system", "content": self.system_prompt})
+            payload["messages"].append(
+                {"role": "system", "content": self.system_prompt}
+            )
         payload["messages"].append({"role": "user", "content": prompt})
 
         resp = requests.post(self.local_llm_url, json=payload, timeout=5)
@@ -113,7 +150,11 @@ class RadioFreeDJ:
 
     def render_log_panel(self) -> Panel:
         if not self.show_logs:
-            return Panel("[dim]Logs hidden. Toggle with 'v'.[/dim]", title=" Logs", border_style="gray")
+            return Panel(
+                "[dim]Logs hidden. Toggle with 'v'.[/dim]",
+                title=" Logs",
+                border_style="gray",
+            )
         try:
             if os.path.exists(self.log_path):
                 with open(self.log_path, "r", encoding="utf-8") as f:
@@ -124,4 +165,3 @@ class RadioFreeDJ:
         except Exception as e:
             text = Text(f"Error reading log file: {e}", style="red")
         return Panel(text, title=" Logs", border_style="gray")
-

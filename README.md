@@ -79,6 +79,12 @@ python main.py
 ```
 
 Controls and navigation are rendered via the terminal interface.
+Press `?` to display a help popup and close it with `Esc`.
+
+### Manual Refresh & Cancel
+
+Press **`c`** at any time to cancel an in-progress GPT request. If the
+interface appears stuck, press **`r`** to force a screen refresh.
 
 ---
 

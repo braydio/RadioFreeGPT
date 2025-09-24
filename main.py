@@ -253,6 +253,30 @@ def render_status() -> Text:
     return text
 
 
+def get_next_queued_track() -> tuple[str | None, str | None]:
+    """Return the next queued track as ``(track, artist)`` if available.
+
+    Returns
+    -------
+    tuple[str | None, str | None]
+        A tuple containing the track name and artist, or ``(None, None)`` when
+        the queue is empty or the entry lacks the expected structure.
+    """
+
+    if not upnext.queue:
+        return None, None
+
+    next_item = upnext.queue[0]
+    if isinstance(next_item, dict):
+        return next_item.get("track_name"), next_item.get("artist_name")
+
+    if isinstance(next_item, (list, tuple)) and len(next_item) >= 2:
+        return next_item[0], next_item[1]
+
+    logger.warning("Unexpected queue item format: %r", next_item)
+    return None, None
+
+
 def create_layout(song_name, artist_name):
     if show_help:
         return Panel(
@@ -626,14 +650,13 @@ def main():
                     auto_dj_counter += 1
                     if upnext.auto_dj_enabled:
                         upnext.maintain_queue(current_song, current_artist)
-                        if auto_dj_counter % 3 == 0 and upnext.queue:
-                            upnext.dj_commentary(
-                                (last_song["name"], last_song["artist"]),
-                                (
-                                    upnext.queue[0]["track_name"],
-                                    upnext.queue[0]["artist_name"],
-                                ),
-                            )
+                        if auto_dj_counter % 3 == 0:
+                            next_track = get_next_queued_track()
+                            if next_track[0] and next_track[1]:
+                                upnext.dj_commentary(
+                                    (last_song["name"], last_song["artist"]),
+                                    next_track,
+                                )
                 lyrics_manager.sync(progress_ms)
                 if upnext.auto_dj_enabled:
                     upnext.maintain_queue(current_song, current_artist)

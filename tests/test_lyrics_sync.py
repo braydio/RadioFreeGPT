@@ -2,6 +2,11 @@ import sys, os
 import unittest
 import time
 
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 os.environ.setdefault("GENIUS_API_TOKEN", "dummy")
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))

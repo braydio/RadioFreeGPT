@@ -1,4 +1,7 @@
-"""Interactive TUI for controlling Spotify playback with GPT prompts."""
+"""Interactive TUI for controlling Spotify playback with GPT prompts.
+
+Press ``?`` during playback to open a help popup describing all controls.
+"""
 
 import threading
 import time
@@ -83,6 +86,7 @@ lyrics_view_mode = "chunk"
 lyrics_cursor = 0
 
 show_gpt_log = True
+show_help = False
 command_log_buffer = []
 notifications = []
 user_input_queue = Queue()
@@ -229,7 +233,26 @@ def get_menu_text():
     return Text.from_markup("\n".join(menu))
 
 
+def render_status() -> Text:
+    """Return a summary of current runtime status."""
+
+    auto_dj = "on" if upnext.auto_dj_enabled else "off"
+    text = Text.from_markup(
+        f"[bold]GPT:[/bold] {gpt_dj.active_model}\n"
+        f"[bold]Mode:[/bold] {upnext.mode}\n"
+        f"[bold]Auto-DJ:[/bold] {auto_dj}"
+    )
+    return text
+
+
 def create_layout(song_name, artist_name):
+    if show_help:
+        return Panel(
+            get_menu_text(),
+            title="󰮫 Help (ESC)",
+            border_style="yellow",
+        )
+
     layout = Layout()
     layout.split(
         Layout(name="header", size=3),
@@ -289,9 +312,9 @@ def create_layout(song_name, artist_name):
                 panel_text.append(f"  {line}\n", style=style)
     layout["lyrics"].update(Panel(panel_text, title="󰎆 Lyrics", border_style="cyan"))
 
-    # Menu & GPT panels
+    # Status & GPT panels
     layout["menu"].update(
-        Panel(get_menu_text(), title="󰮫 Main Menu", border_style="green")
+        Panel(render_status(), title="󰌪 Status", border_style="green")
     )
     layout["gpt"].update(
         Panel(render_gpt_log(), title=" RadioFree󰲿", border_style="magenta")
@@ -383,7 +406,15 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         command_log_buffer.pop(0)
     notify(f"Command: {label}", style="green")
 
-    global lyrics_view_mode, lyrics_cursor, show_gpt_log
+    global lyrics_view_mode, lyrics_cursor, show_gpt_log, show_help
+
+    if choice == "?":
+        show_help = True
+        return
+    if show_help:
+        if choice.lower() in {"esc", "\x1b"}:
+            show_help = False
+        return
 
     if choice == "l":
         if lyrics_view_mode == "chunk":
@@ -503,9 +534,7 @@ def fetch_playback_item(max_retries: int = 10, delay: float = 0.2) -> dict:
         except (ReadTimeout, RequestException) as e:
             logger.warning(f"Spotify API error: {e}")
         time.sleep(delay)
-    logger.warning(
-        f"Playback details unavailable after {max_retries} attempts"
-    )
+    logger.warning(f"Playback details unavailable after {max_retries} attempts")
     return item
 
 
@@ -532,7 +561,7 @@ def main():
         lyrics_manager.start(song_name, artist_name, album_name, duration_ms)
         update_now_playing(song_name, artist_name)
         console.print(
-            "[dim]Press [bold]l[/bold] to toggle lyrics, [bold]g[/bold] for GPT log, or press keys (1–6, t, arrows, space, +, -).[/dim]"
+            "[dim]Press [?] for help. Use [bold]l[/bold] to toggle lyrics and [bold]g[/bold] for GPT log.[/dim]"
         )
         # Increase refresh rate to improve UI responsiveness
         # CPU overhead measured <0.1s over 3 seconds at 10 FPS (see docs).

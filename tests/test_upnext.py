@@ -23,7 +23,7 @@ class DummyDJ:
 
         self.logger = L()
 
-    def ask(self, prompt):
+    def ask(self, prompt, cancel_event=None):
         return "{}"
 
 
@@ -33,7 +33,7 @@ class BatchDJ(DummyDJ):
         self.calls = 0
         self.response = response
 
-    def ask(self, prompt):
+    def ask(self, prompt, cancel_event=None):
         self.calls += 1
         return self.response
 

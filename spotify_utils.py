@@ -119,3 +119,22 @@ class SpotifyController:
             self.logger.info("Volume set to %d%%", new_vol)
         except Exception as e:
             self.logger.error("Error changing volume: %s", e)
+
+    def restart_track(self) -> None:
+        """Restart playback from the beginning of the current track."""
+        try:
+            self.sp.seek_track(0)
+        except Exception as e:
+            self.logger.error("Error restarting track: %s", e)
+
+    def skip_to_end(self) -> None:
+        """Seek to the final second of the current track to move to the next."""
+        try:
+            playback = self.sp.current_playback()
+            duration = playback.get("item", {}).get("duration_ms", 0) if playback else 0
+            if duration > 1000:
+                self.sp.seek_track(duration - 1000)
+            else:
+                self.next()
+        except Exception as e:
+            self.logger.error("Error skipping to end: %s", e)

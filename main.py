@@ -107,6 +107,35 @@ gpt_log_buffer = []
 gpt_log_scroll = 0
 
 
+TIP_INTERVAL_SECONDS = 20 * 60
+TIP_MESSAGES = [
+    "Press [bold]?[/bold] to view all keyboard shortcuts.",
+    "Refresh a frozen view with [bold]r[/bold] to redraw the TUI.",
+    "Toggle the GPT log visibility anytime with [bold]g[/bold].",
+    "Switch between chunk and full lyric layouts using [bold]l[/bold].",
+    "Use [bold]j[/bold] and [bold]k[/bold] to move the lyric cursor in full view.",
+    "Tap [bold]1[/bold] to turn Auto-DJ recommendations on or off.",
+    "Queue a single fresh recommendation instantly with [bold]2[/bold].",
+    "Line up ten recommended tracks at once by pressing [bold]3[/bold].",
+    "Build a curated playlist for the vibe with [bold]4[/bold].",
+    "Explore themed playlists tailored to the moment with [bold]5[/bold].",
+    "Ask GPT for deep song insights using [bold]6[/bold].",
+    "Let GPT unpack lyric meanings by choosing [bold]7[/bold].",
+    "Save the current song to favorites with a tap of [bold]s[/bold].",
+    "Mark a track as disliked and move on using [bold]d[/bold].",
+    "Restart the current song instantly with [bold]b[/bold].",
+    "Skip straight to the finale of a song using [bold]e[/bold].",
+    "Toggle between Smart and Playlist queue modes via [bold]t[/bold].",
+    "Cancel an in-flight GPT request whenever needed with [bold]c[/bold].",
+    "Scroll the GPT log upward using [bold]Ctrl+U[/bold] or [bold]PageUp[/bold].",
+    "Scroll the GPT log downward with [bold]Ctrl+D[/bold] or [bold]PageDown[/bold].",
+    "Exit RadioFreeDJ safely at any time by pressing [bold]0[/bold].",
+    "Keep Auto-DJ humming by letting a few songs remain queued.",
+]
+last_tip_timestamp = time.monotonic()
+tip_index = 0
+
+
 GPT_LOG_FILE = os.path.expanduser("~/RadioFree/logs/gpt_log.jsonl")
 
 
@@ -167,6 +196,19 @@ def notify(message: str, style="bold yellow"):
     notifications.append(Text(message, style=style))
     if len(notifications) > 3:
         notifications.pop(0)
+
+
+def maybe_show_tip(current_time: float) -> None:
+    """Emit an occasional rotating tip without overwhelming the UI."""
+
+    global last_tip_timestamp, tip_index
+    if current_time - last_tip_timestamp < TIP_INTERVAL_SECONDS:
+        return
+
+    message = TIP_MESSAGES[tip_index]
+    tip_index = (tip_index + 1) % len(TIP_MESSAGES)
+    last_tip_timestamp = current_time
+    notify(f"💡 Tip: {message}", style="bright_cyan")
 
 
 def log_song_history(
@@ -774,6 +816,7 @@ def main():
                 if not user_input_queue.empty():
                     choice = user_input_queue.get()
                     process_user_input(choice, current_song, current_artist)
+                maybe_show_tip(time.monotonic())
                 time.sleep(0.5)
     except KeyboardInterrupt:
         console.print("\n[bold red]⏹ Exiting FreeRadioDJ... Goodbye![/bold red]")

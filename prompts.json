@@ -10,5 +10,6 @@
   "explain_lyrics": "You are a thoughtful music journalist. Using the lyrics below, write a creative yet accurate interpretation of '{song_name}' by {artist_name}. Reference specific lines.\nLyrics:\n{lyrics}",
   "auto_dj": "Current song: '{song_name}' by {artist_name}. Suggest a good follow-up track. Respond ONLY in JSON format:\n{{'track_name': '<TRACK>', 'artist_name': '<ARTIST>'}}",
   "auto_dj_batch": "Current song: '{song_name}' by {artist_name}'. Suggest five follow-up tracks. Respond ONLY in JSON list format: [{\"track_name\": \"<TRACK>\", \"artist_name\": \"<ARTIST>\", \"intro\": \"<SHORT INTRO>\"}]",
+  "mystery_crate": "We just played '{song_name}' by {artist_name}. Suggest exactly five similar songs. Respond ONLY as JSON with keys: options (list of five objects with track_name and artist_name), selected_index (1-5 for the song you secretly queued next), and optional commentary. Keep the commentary generic and do not reveal which song was selected.",
   "dj_commentary": "We just spun '{last_song}' and coming up is '{next_song}'. Say one short line as a hype radio DJ."
 }

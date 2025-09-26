@@ -13,6 +13,7 @@ from datetime import datetime
 from time import sleep
 
 from gpt_dj import RadioFreeDJ
+from mystery_mode import MysteryModeManager
 from spotify_utils import SpotifyController
 from upnext import UpNextManager
 from genius_utils import get_lyrics
@@ -74,12 +75,13 @@ COMMAND_LABELS = {
     "pagedown": "GPT Log Down",
     "page_up": "GPT Log Up",
     "page_down": "GPT Log Down",
+    "m": "Toggle Mystery Mode",
 }
 COMMAND_LOG_FILE = os.path.join(os.path.dirname(__file__), "commands.log")
 
 
-def log_command(choice: str):
-    label = COMMAND_LABELS.get(choice, "Unknown")
+def log_command(choice: str, label_override: str | None = None):
+    label = label_override or COMMAND_LABELS.get(choice, "Unknown")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"{timestamp} - {choice} → {label}\n"
     try:
@@ -135,6 +137,28 @@ def log_gpt(prompt: str, response: str):
         logger.warning(f"Failed to write GPT log: {e}")
 
 
+def overwrite_latest_gpt_log(response: str) -> None:
+    """Replace the most recent GPT response with ``response`` for display."""
+
+    if not gpt_log_buffer:
+        return
+    prompt, _ = gpt_log_buffer[-1]
+    gpt_log_buffer[-1] = (prompt, response)
+    try:
+        if os.path.exists(GPT_LOG_FILE):
+            with open(GPT_LOG_FILE, "r+", encoding="utf-8") as handle:
+                lines = handle.readlines()
+                if lines:
+                    entry = json.loads(lines[-1])
+                    entry["response"] = response
+                    lines[-1] = json.dumps(entry) + "\n"
+                    handle.seek(0)
+                    handle.writelines(lines)
+                    handle.truncate()
+    except Exception as exc:
+        logger.warning(f"Failed to overwrite GPT log entry: {exc}")
+
+
 # === instantiate radiofreedj ===
 api_key = os.getenv("OPENAI_API_KEY")
 gpt_model = os.getenv("GPT_MODEL", "gpt-4o-mini")
@@ -152,6 +176,11 @@ gpt_dj = RadioFreeDJ(
 spotify_controller = SpotifyController()
 upnext = UpNextManager(
     gpt_dj, spotify_controller, prompt_templates, cancel_event=cancel_event
+)
+mystery_manager = MysteryModeManager(
+    gpt_dj,
+    spotify_controller,
+    prompt_templates.get("mystery_crate", ""),
 )
 lyrics_manager = LyricsSyncManager(spotify_controller)
 console = Console()
@@ -292,6 +321,7 @@ def render_keybinds_text() -> Text:
         "[bold]5.[/bold] Queue 10-song theme playlist",
         "[bold]6.[/bold] Get info on current song",
         "[bold]7.[/bold] Explain current song lyrics",
+        "[bold]m.[/bold] Toggle mystery crate mode",
         "[bold]c.[/bold] Cancel current request",
         "[bold]r.[/bold] Refresh display",
         "[bold]b.[/bold] Restart current song",
@@ -311,10 +341,15 @@ def render_status() -> Text:
     """Return a summary of current runtime status."""
 
     auto_dj = "on" if upnext.auto_dj_enabled else "off"
+    if mystery_manager.awaiting_choice:
+        mystery_state = "awaiting choice"
+    else:
+        mystery_state = "on" if mystery_manager.enabled else "off"
     text = Text.from_markup(
         f"[bold]GPT:[/bold] {gpt_dj.active_model}\n"
         f"[bold]Mode:[/bold] {upnext.mode}\n"
-        f"[bold]Auto-DJ:[/bold] {auto_dj}"
+        f"[bold]Auto-DJ:[/bold] {auto_dj}\n"
+        f"[bold]Mystery:[/bold] {mystery_state}"
     )
     return text
 
@@ -486,7 +521,6 @@ def read_input():
         while True:
             choice = Prompt.ask("[bold green]   Select an option[/bold green]")
             user_input_queue.put(choice)
-            log_command(choice)
     except KeyboardInterrupt:
         pass
 
@@ -500,7 +534,15 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         current_artist: Artist of the song currently playing.
     """
 
-    label = log_command(choice)
+    override_label = None
+    if (
+        mystery_manager.awaiting_choice
+        and choice.isdigit()
+        and 1 <= int(choice) <= mystery_manager.choice_count
+    ):
+        override_label = f"Mystery pick {choice}"
+
+    label = log_command(choice, label_override=override_label)
     command_log_buffer.append(f"{choice} → {label}")
     if len(command_log_buffer) > 50:
         command_log_buffer.pop(0)
@@ -508,6 +550,12 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
 
     global lyrics_view_mode, lyrics_cursor, show_gpt_log, show_keybinds
     choice_lower = choice.lower()
+
+    if override_label:
+        success, message = mystery_manager.play_choice(int(choice))
+        style = "magenta" if success else "red"
+        notify(message, style=style)
+        return
 
     if choice == "?":
         show_keybinds = not show_keybinds
@@ -558,6 +606,12 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         upnext.song_insight(current_song, current_artist)
     elif choice == "7":
         upnext.explain_lyrics(current_song, current_artist)
+    elif choice_lower == "m":
+        enabled = mystery_manager.toggle()
+        state = "enabled" if enabled else "disabled"
+        notify(f"Mystery mode {state}", style="magenta")
+        if not enabled:
+            notify("Numeric controls restored", style="magenta")
     elif choice == "b":
         spotify_controller.restart_track()
         notify("↩ Restarted track.", style="yellow")
@@ -777,6 +831,23 @@ def main():
                                         upnext.queue[0]["artist_name"],
                                     ),
                                 )
+                    if mystery_manager.enabled:
+                        display_text = mystery_manager.activate_round(
+                            current_song,
+                            current_artist,
+                            cancel_event=cancel_event,
+                        )
+                        if display_text:
+                            overwrite_latest_gpt_log(display_text)
+                            notify(
+                                "Mystery crate loaded — press 1-5 to choose",
+                                style="magenta",
+                            )
+                        else:
+                            notify(
+                                "Mystery crate unavailable this round",
+                                style="red",
+                            )
                 lyrics_manager.sync(progress_ms)
                 if upnext.auto_dj_enabled:
                     upnext.maintain_queue(current_song, current_artist)

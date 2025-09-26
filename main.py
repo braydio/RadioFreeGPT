@@ -13,6 +13,7 @@ from datetime import datetime
 from time import sleep
 
 from gpt_dj import RadioFreeDJ
+from mystery_mode import MysteryModeManager
 from spotify_utils import SpotifyController
 from upnext import UpNextManager
 from genius_utils import get_lyrics
@@ -66,12 +67,21 @@ COMMAND_LABELS = {
     "k": "Cursor Up",
     "c": "Cancel",
     "r": "Refresh",
+    "ctrl+u": "GPT Log Up",
+    "ctrl+d": "GPT Log Down",
+    "cu": "GPT Log Up",
+    "cd": "GPT Log Down",
+    "pageup": "GPT Log Up",
+    "pagedown": "GPT Log Down",
+    "page_up": "GPT Log Up",
+    "page_down": "GPT Log Down",
+    "m": "Toggle Mystery Mode",
 }
 COMMAND_LOG_FILE = os.path.join(os.path.dirname(__file__), "commands.log")
 
 
-def log_command(choice: str):
-    label = COMMAND_LABELS.get(choice, "Unknown")
+def log_command(choice: str, label_override: str | None = None):
+    label = label_override or COMMAND_LABELS.get(choice, "Unknown")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = f"{timestamp} - {choice} → {label}\n"
     try:
@@ -88,7 +98,7 @@ lyrics_view_mode = "chunk"
 lyrics_cursor = 0
 
 show_gpt_log = True
-show_help = False
+show_keybinds = False
 command_log_buffer = []
 notifications = []
 user_input_queue = Queue()
@@ -96,12 +106,16 @@ cancel_event = threading.Event()
 refresh_event = threading.Event()
 
 gpt_log_buffer = []
+gpt_log_scroll = 0
 
 
 GPT_LOG_FILE = os.path.expanduser("~/RadioFree/logs/gpt_log.jsonl")
 
 
 def log_gpt(prompt: str, response: str):
+    """Persist GPT prompt/response pairs and refresh scroll position."""
+
+    global gpt_log_scroll
     entry = {
         "timestamp": datetime.now().isoformat(),
         "prompt": prompt.strip(),
@@ -111,12 +125,38 @@ def log_gpt(prompt: str, response: str):
     if len(gpt_log_buffer) > 50:
         gpt_log_buffer.pop(0)
 
+    # Always snap back to the latest response when a new entry arrives so the
+    # log view mirrors fresh GPT output.
+    gpt_log_scroll = 0
+
     try:
         os.makedirs(os.path.dirname(GPT_LOG_FILE), exist_ok=True)
         with open(GPT_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
     except Exception as e:
         logger.warning(f"Failed to write GPT log: {e}")
+
+
+def overwrite_latest_gpt_log(response: str) -> None:
+    """Replace the most recent GPT response with ``response`` for display."""
+
+    if not gpt_log_buffer:
+        return
+    prompt, _ = gpt_log_buffer[-1]
+    gpt_log_buffer[-1] = (prompt, response)
+    try:
+        if os.path.exists(GPT_LOG_FILE):
+            with open(GPT_LOG_FILE, "r+", encoding="utf-8") as handle:
+                lines = handle.readlines()
+                if lines:
+                    entry = json.loads(lines[-1])
+                    entry["response"] = response
+                    lines[-1] = json.dumps(entry) + "\n"
+                    handle.seek(0)
+                    handle.writelines(lines)
+                    handle.truncate()
+    except Exception as exc:
+        logger.warning(f"Failed to overwrite GPT log entry: {exc}")
 
 
 # === instantiate radiofreedj ===
@@ -136,6 +176,11 @@ gpt_dj = RadioFreeDJ(
 spotify_controller = SpotifyController()
 upnext = UpNextManager(
     gpt_dj, spotify_controller, prompt_templates, cancel_event=cancel_event
+)
+mystery_manager = MysteryModeManager(
+    gpt_dj,
+    spotify_controller,
+    prompt_templates.get("mystery_crate", ""),
 )
 lyrics_manager = LyricsSyncManager(spotify_controller)
 console = Console()
@@ -204,20 +249,67 @@ def render_progress_bar(progress_ms, duration_ms):
     return f"{bar} {int(percent * 100)}%"
 
 
+def _gpt_log_page_size() -> int:
+    """Return the number of log entries that represent a scroll "page"."""
+
+    return max(1, len(gpt_log_buffer) // 2 or 1)
+
+
+def scroll_gpt_log(direction: int) -> None:
+    """Move the GPT log view up or down by half a page of entries."""
+
+    global gpt_log_scroll
+
+    if not gpt_log_buffer:
+        gpt_log_scroll = 0
+        return
+
+    page = _gpt_log_page_size()
+    gpt_log_scroll = max(
+        0,
+        min(gpt_log_scroll + (direction * page), len(gpt_log_buffer) - 1),
+    )
+
+
 def render_gpt_log() -> Text:
-    """Return the latest GPT response formatted with Rich markup."""
+    """Return the GPT response at the current scroll position."""
 
     panel_text = Text()
     if show_gpt_log and gpt_log_buffer:
-        _, latest = gpt_log_buffer[-1]
-        # Parse markup tags in the GPT response so styling is applied
-        panel_text = Text.from_markup(latest, style="cyan")
+        index = max(len(gpt_log_buffer) - 1 - gpt_log_scroll, 0)
+        _prompt, response = gpt_log_buffer[index]
+
+        position = Text.from_markup(
+            f"[dim]Entry {index + 1} of {len(gpt_log_buffer)}[/dim]\n\n"
+        )
+        panel_text.append_text(position)
+
+        # Parse markup tags in the GPT response so styling is applied while
+        # keeping prompts readable in a dimmer style for context.
+        panel_text.append_text(Text.from_markup(response, style="cyan"))
+        if gpt_log_scroll:
+            panel_text.append(
+                f"\n\n[dim]↑ {gpt_log_scroll} page(s) from latest response[/dim]"
+            )
     else:
         panel_text.append("[dim]GPT log hidden (press [bold]g[/bold] to show)[/dim]")
     return panel_text
 
 
-def get_menu_text():
+def gpt_log_controls_text() -> Text:
+    """Build the subtitle renderable showing GPT log scroll controls."""
+
+    controls = Text()
+    controls.append(" Ctrl+U ", style="bold black on bright_magenta")
+    controls.append("↑  ", style="dim")
+    controls.append(" Ctrl+D ", style="bold black on bright_magenta")
+    controls.append("↓", style="dim")
+    return controls
+
+
+def render_keybinds_text() -> Text:
+    """Return a formatted list of available keyboard shortcuts."""
+
     mode_label = "Playlist" if upnext.mode == "playlist" else "Smart"
     menu = [
         "[bold]1.[/bold] 󰼛 Tune in to RadioFree󰲿 with DJ gpt-4o-mini 󱚣 ",
@@ -229,11 +321,15 @@ def get_menu_text():
         "[bold]5.[/bold] Queue 10-song theme playlist",
         "[bold]6.[/bold] Get info on current song",
         "[bold]7.[/bold] Explain current song lyrics",
+        "[bold]m.[/bold] Toggle mystery crate mode",
         "[bold]c.[/bold] Cancel current request",
         "[bold]r.[/bold] Refresh display",
         "[bold]b.[/bold] Restart current song",
         "[bold]e.[/bold] Skip to song end",
         f"[bold]t.[/bold] Toggle playback mode ({mode_label} Mode)",
+        "[bold]l.[/bold] Toggle lyrics view",
+        "[bold]g.[/bold] Toggle GPT log",
+        "[bold]?[/bold] Toggle keybind panel",
         "[bold]0.[/bold] Quit",
     ]
     if command_log_buffer:
@@ -245,10 +341,15 @@ def render_status() -> Text:
     """Return a summary of current runtime status."""
 
     auto_dj = "on" if upnext.auto_dj_enabled else "off"
+    if mystery_manager.awaiting_choice:
+        mystery_state = "awaiting choice"
+    else:
+        mystery_state = "on" if mystery_manager.enabled else "off"
     text = Text.from_markup(
         f"[bold]GPT:[/bold] {gpt_dj.active_model}\n"
         f"[bold]Mode:[/bold] {upnext.mode}\n"
-        f"[bold]Auto-DJ:[/bold] {auto_dj}"
+        f"[bold]Auto-DJ:[/bold] {auto_dj}\n"
+        f"[bold]Mystery:[/bold] {mystery_state}"
     )
     return text
 
@@ -284,6 +385,7 @@ def create_layout(song_name, artist_name):
             title="󰮫 Help (ESC)",
             border_style="yellow",
         )
+
 
     layout = Layout()
     layout.split(
@@ -345,11 +447,21 @@ def create_layout(song_name, artist_name):
     layout["lyrics"].update(Panel(panel_text, title="󰎆 Lyrics", border_style="cyan"))
 
     # Status & GPT panels
+    status_panel_title = "󰌪 Status" if not show_keybinds else "󰘴 Keybinds"
+    status_panel_content = (
+        render_status() if not show_keybinds else render_keybinds_text()
+    )
     layout["menu"].update(
-        Panel(render_status(), title="󰌪 Status", border_style="green")
+        Panel(status_panel_content, title=status_panel_title, border_style="green")
     )
     layout["gpt"].update(
-        Panel(render_gpt_log(), title=" RadioFree󰲿", border_style="magenta")
+        Panel(
+            render_gpt_log(),
+            title=" RadioFree󰲿",
+            border_style="magenta",
+            subtitle=gpt_log_controls_text(),
+            subtitle_align="right",
+        )
     )
 
     return layout
@@ -431,36 +543,62 @@ def read_input():
         while True:
             choice = Prompt.ask("[bold green]   Select an option[/bold green]")
             user_input_queue.put(choice)
-            log_command(choice)
     except KeyboardInterrupt:
         pass
 
 
 def process_user_input(choice: str, current_song: str, current_artist: str):
-    label = log_command(choice)
+    """Handle user commands and dispatch the appropriate action.
+
+    Args:
+        choice: Raw input command captured from the prompt.
+        current_song: Title of the song currently playing.
+        current_artist: Artist of the song currently playing.
+    """
+
+    override_label = None
+    if (
+        mystery_manager.awaiting_choice
+        and choice.isdigit()
+        and 1 <= int(choice) <= mystery_manager.choice_count
+    ):
+        override_label = f"Mystery pick {choice}"
+
+    label = log_command(choice, label_override=override_label)
     command_log_buffer.append(f"{choice} → {label}")
     if len(command_log_buffer) > 50:
         command_log_buffer.pop(0)
     notify(f"Command: {label}", style="green")
 
-    global lyrics_view_mode, lyrics_cursor, show_gpt_log, show_help
+    global lyrics_view_mode, lyrics_cursor, show_gpt_log, show_keybinds
+    choice_lower = choice.lower()
+
+    if override_label:
+        success, message = mystery_manager.play_choice(int(choice))
+        style = "magenta" if success else "red"
+        notify(message, style=style)
+        return
 
     if choice == "?":
-        show_help = True
-        return
-    if show_help:
-        if choice.lower() in {"esc", "\x1b"}:
-            show_help = False
+        show_keybinds = not show_keybinds
+        view_state = "shown" if show_keybinds else "hidden"
+        notify(f"Keybinds {view_state}", style="yellow")
         return
 
-    if choice == "l":
+    if choice_lower == "l":
         if lyrics_view_mode == "chunk":
             lyrics_view_mode = "full"
             lyrics_cursor = lyrics_manager.current_index
         else:
             lyrics_view_mode = "chunk"
-    elif choice == "g":
+    elif choice_lower == "g":
         show_gpt_log = not show_gpt_log
+    elif choice_lower in {"ctrl+u", "cu", "pageup", "page_up"}:
+        scroll_gpt_log(direction=1)
+        notify("GPT log scrolled up", style="magenta")
+    elif choice_lower in {"ctrl+d", "cd", "pagedown", "page_down"}:
+        scroll_gpt_log(direction=-1)
+        notify("GPT log scrolled down", style="magenta")
     elif lyrics_view_mode == "full" and choice == "j":
         lyrics_cursor = min(lyrics_cursor + 1, len(lyrics_manager.lines) - 1)
     elif lyrics_view_mode == "full" and choice == "k":
@@ -473,6 +611,11 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         notify(f"Auto-DJ {state}", style="cyan")
         if upnext.auto_dj_enabled:
             upnext.maintain_queue(current_song, current_artist)
+            if upnext.queue:
+                lyrics_manager.prefetch(
+                    upnext.queue[0]["track_name"],
+                    upnext.queue[0]["artist_name"],
+                )
     elif choice == "2":
         upnext.queue_one_song(current_song, current_artist)
     elif choice == "3":
@@ -485,6 +628,12 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         upnext.song_insight(current_song, current_artist)
     elif choice == "7":
         upnext.explain_lyrics(current_song, current_artist)
+    elif choice_lower == "m":
+        enabled = mystery_manager.toggle()
+        state = "enabled" if enabled else "disabled"
+        notify(f"Mystery mode {state}", style="magenta")
+        if not enabled:
+            notify("Numeric controls restored", style="magenta")
     elif choice == "b":
         spotify_controller.restart_track()
         notify("↩ Restarted track.", style="yellow")
@@ -581,6 +730,46 @@ def fetch_playback_item(max_retries: int = 10, delay: float = 0.2) -> dict:
     return item
 
 
+def handle_track_change(
+    prev_song: dict, current_song: str, current_artist: str
+) -> None:
+    """Perform network-heavy tasks when the track changes.
+
+    This function runs in a background thread so the main UI loop stays
+    responsive when a new song starts playing.
+
+    Parameters
+    ----------
+    prev_song:
+        Dictionary containing the previously playing song's details.
+    current_song:
+        Title of the new song.
+    current_artist:
+        Artist of the new song.
+    """
+
+    item2 = fetch_playback_item()
+    duration_ms = item2.get("duration_ms", 0)
+    album_name = item2.get("album", {}).get("name", "")
+
+    notify(f"🔄 Track changed: {current_song} by {current_artist}", style="cyan")
+    lyrics_manager.start(current_song, current_artist, album_name, duration_ms)
+    sync_with_lastfm(current_song, current_artist)
+
+    global auto_dj_counter
+    auto_dj_counter += 1
+    if upnext.auto_dj_enabled:
+        upnext.maintain_queue(current_song, current_artist)
+        if auto_dj_counter % 3 == 0 and upnext.queue:
+            upnext.dj_commentary(
+                (prev_song.get("name"), prev_song.get("artist")),
+                (
+                    upnext.queue[0]["track_name"],
+                    upnext.queue[0]["artist_name"],
+                ),
+            )
+
+
 def main():
     global last_song, show_lyrics, show_gpt_log, lyrics_view_mode, lyrics_cursor
     try:
@@ -626,9 +815,10 @@ def main():
                     last_song["name"],
                     last_song["artist"],
                 ):
-                    if last_song["name"] and last_song["artist"]:
+                    prev_song = last_song.copy()
+                    if prev_song["name"] and prev_song["artist"]:
                         scrobble(
-                            last_song["name"], last_song["artist"], last_song["started"]
+                            prev_song["name"], prev_song["artist"], prev_song["started"]
                         )
                     last_song = {
                         "name": current_song,
@@ -657,9 +847,15 @@ def main():
                                     (last_song["name"], last_song["artist"]),
                                     next_track,
                                 )
+
                 lyrics_manager.sync(progress_ms)
                 if upnext.auto_dj_enabled:
                     upnext.maintain_queue(current_song, current_artist)
+                    if upnext.queue:
+                        lyrics_manager.prefetch(
+                            upnext.queue[0]["track_name"],
+                            upnext.queue[0]["artist_name"],
+                        )
                 live.update(create_layout(current_song, current_artist))
                 if refresh_event.is_set():
                     live.refresh()

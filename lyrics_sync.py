@@ -12,6 +12,8 @@ logger = setup_logger(__name__)
 
 
 class LyricsSyncManager:
+    """Fetch and synchronize time-coded song lyrics."""
+
     API_URL = "https://lrclib.net/api/get"
 
     def __init__(self, spotify_controller):
@@ -22,19 +24,55 @@ class LyricsSyncManager:
         self.logger = logger
         self._fetch_thread: threading.Thread | None = None
         self.fetching = False
+        # simple cache for prefetched lyrics
+        self._cache: dict[tuple[str, str], tuple[list[int], list[str]]] = {}
 
     def start(self, track_name, artist_name, album_name="", duration_ms=0):
-        """Start fetching lyrics in a background thread."""
+        """Start fetching lyrics in a background thread.
+
+        If lyrics have been prefetched, they are loaded immediately.
+        """
         self.current_index = 0
         self.timestamps = []
         self.lines = []
-        self.fetching = True
 
+        cached = self._cache.pop((track_name, artist_name), None)
+        if cached:
+            self.timestamps, self.lines = cached
+            self.fetching = False
+            return
+
+        self.fetching = True
         args = (track_name, artist_name, album_name, duration_ms)
         self._fetch_thread = threading.Thread(
             target=self._load_lyrics, args=args, daemon=True
         )
         self._fetch_thread.start()
+
+    def prefetch(self, track_name, artist_name, album_name="", duration_ms=0) -> None:
+        """Fetch lyrics ahead of time and store them in the cache."""
+
+        if (track_name, artist_name) in self._cache:
+            return
+
+        threading.Thread(
+            target=self._prefetch_worker,
+            args=(track_name, artist_name, album_name, duration_ms),
+            daemon=True,
+        ).start()
+
+    def _prefetch_worker(self, track_name, artist_name, album_name, duration_ms):
+        ts, ls = self.fetch_lyrics(
+            artist_name=artist_name,
+            track_name=track_name,
+            album_name=album_name,
+            duration_ms=duration_ms,
+        )
+        if ts and ls:
+            # limit cache size to three entries
+            if len(self._cache) >= 3:
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[(track_name, artist_name)] = (ts, ls)
 
     def _load_lyrics(self, track_name, artist_name, album_name, duration_ms):
         try:
@@ -128,3 +166,4 @@ class LyricsSyncManager:
 
     def get_text(self):
         return self.lines[self.current_index] if self.lines else ""
+

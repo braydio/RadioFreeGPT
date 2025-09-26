@@ -66,6 +66,7 @@ COMMAND_LABELS = {
     "k": "Cursor Up",
     "c": "Cancel",
     "r": "Refresh",
+    "?": "Help",
     "ctrl+u": "GPT Log Up",
     "ctrl+d": "GPT Log Down",
     "cu": "GPT Log Up",
@@ -470,9 +471,22 @@ def song_insights(song_name, artist_name):
 # User Interaction Loop
 # ─────────────────────────────────────────────────────────────
 def read_input():
+    """Continuously capture user commands and trigger immediate actions.
+
+    Returns
+    -------
+    None
+        The loop runs until interrupted and does not return a value.
+    """
+
     try:
         while True:
             choice = Prompt.ask("[bold green]   Select an option[/bold green]")
+            choice_lower = choice.lower()
+            if choice_lower == "c":
+                cancel_event.set()
+            elif choice_lower == "r":
+                refresh_event.set()
             user_input_queue.put(choice)
             log_command(choice)
     except KeyboardInterrupt:
@@ -480,6 +494,23 @@ def read_input():
 
 
 def process_user_input(choice: str, current_song: str, current_artist: str):
+    """Handle queued user commands and update the interactive UI state.
+
+    Parameters
+    ----------
+    choice
+        Raw user input taken from the command queue.
+    current_song
+        Title of the song currently playing.
+    current_artist
+        Artist performing the current song.
+
+    Returns
+    -------
+    None
+        This function mutates module-level state but does not return a value.
+    """
+
     label = log_command(choice)
     command_log_buffer.append(f"{choice} → {label}")
     if len(command_log_buffer) > 50:

@@ -96,7 +96,7 @@ lyrics_view_mode = "chunk"
 lyrics_cursor = 0
 
 show_gpt_log = True
-show_help = False
+show_keybinds = False
 command_log_buffer = []
 notifications = []
 user_input_queue = Queue()
@@ -278,7 +278,9 @@ def gpt_log_controls_text() -> Text:
     return controls
 
 
-def get_menu_text():
+def render_keybinds_text() -> Text:
+    """Return a formatted list of available keyboard shortcuts."""
+
     mode_label = "Playlist" if upnext.mode == "playlist" else "Smart"
     menu = [
         "[bold]1.[/bold] 󰼛 Tune in to RadioFree󰲿 with DJ gpt-4o-mini 󱚣 ",
@@ -295,6 +297,9 @@ def get_menu_text():
         "[bold]b.[/bold] Restart current song",
         "[bold]e.[/bold] Skip to song end",
         f"[bold]t.[/bold] Toggle playback mode ({mode_label} Mode)",
+        "[bold]l.[/bold] Toggle lyrics view",
+        "[bold]g.[/bold] Toggle GPT log",
+        "[bold]?[/bold] Toggle keybind panel",
         "[bold]0.[/bold] Quit",
     ]
     if command_log_buffer:
@@ -314,13 +319,16 @@ def render_status() -> Text:
     return text
 
 
-def create_layout(song_name, artist_name):
-    if show_help:
-        return Panel(
-            get_menu_text(),
-            title="󰮫 Help (ESC)",
-            border_style="yellow",
-        )
+def create_layout(song_name: str, artist_name: str) -> Layout:
+    """Build the dashboard layout for the current playback state.
+
+    Args:
+        song_name: Title of the track that is currently playing.
+        artist_name: Artist of the track that is currently playing.
+
+    Returns:
+        Layout: Configured Rich layout describing the full dashboard.
+    """
 
     layout = Layout()
     layout.split(
@@ -382,8 +390,12 @@ def create_layout(song_name, artist_name):
     layout["lyrics"].update(Panel(panel_text, title="󰎆 Lyrics", border_style="cyan"))
 
     # Status & GPT panels
+    status_panel_title = "󰌪 Status" if not show_keybinds else "󰘴 Keybinds"
+    status_panel_content = (
+        render_status() if not show_keybinds else render_keybinds_text()
+    )
     layout["menu"].update(
-        Panel(render_status(), title="󰌪 Status", border_style="green")
+        Panel(status_panel_content, title=status_panel_title, border_style="green")
     )
     layout["gpt"].update(
         Panel(
@@ -480,21 +492,27 @@ def read_input():
 
 
 def process_user_input(choice: str, current_song: str, current_artist: str):
+    """Handle user commands and dispatch the appropriate action.
+
+    Args:
+        choice: Raw input command captured from the prompt.
+        current_song: Title of the song currently playing.
+        current_artist: Artist of the song currently playing.
+    """
+
     label = log_command(choice)
     command_log_buffer.append(f"{choice} → {label}")
     if len(command_log_buffer) > 50:
         command_log_buffer.pop(0)
     notify(f"Command: {label}", style="green")
 
-    global lyrics_view_mode, lyrics_cursor, show_gpt_log, show_help
+    global lyrics_view_mode, lyrics_cursor, show_gpt_log, show_keybinds
     choice_lower = choice.lower()
 
     if choice == "?":
-        show_help = True
-        return
-    if show_help:
-        if choice.lower() in {"esc", "\x1b"}:
-            show_help = False
+        show_keybinds = not show_keybinds
+        view_state = "shown" if show_keybinds else "hidden"
+        notify(f"Keybinds {view_state}", style="yellow")
         return
 
     if choice_lower == "l":
@@ -636,7 +654,9 @@ def fetch_playback_item(max_retries: int = 10, delay: float = 0.2) -> dict:
     return item
 
 
-def handle_track_change(prev_song: dict, current_song: str, current_artist: str) -> None:
+def handle_track_change(
+    prev_song: dict, current_song: str, current_artist: str
+) -> None:
     """Perform network-heavy tasks when the track changes.
 
     This function runs in a background thread so the main UI loop stays
@@ -656,9 +676,7 @@ def handle_track_change(prev_song: dict, current_song: str, current_artist: str)
     duration_ms = item2.get("duration_ms", 0)
     album_name = item2.get("album", {}).get("name", "")
 
-    notify(
-        f"🔄 Track changed: {current_song} by {current_artist}", style="cyan"
-    )
+    notify(f"🔄 Track changed: {current_song} by {current_artist}", style="cyan")
     lyrics_manager.start(current_song, current_artist, album_name, duration_ms)
     sync_with_lastfm(current_song, current_artist)
 

@@ -7,7 +7,11 @@ session key so that authentication only needs to occur once.
 
 import os
 import time
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover
+    def load_dotenv(*_args, **_kwargs):
+        return False
 import pylast
 from logger_utils import setup_logger
 

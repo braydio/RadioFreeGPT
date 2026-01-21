@@ -4,9 +4,12 @@ This module exposes :class:`SpotifyController`, a thin wrapper that provides
 methods for playing tracks, adjusting volume and managing the playback queue.
 """
 import os
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover
+    def load_dotenv(*_args, **_kwargs):
+        return False
 from logger_utils import setup_logger
 
 # Load environment variables
@@ -16,6 +19,16 @@ load_dotenv()
 class SpotifyController:
     """Wrapper around Spotipy exposing common playback controls."""
     def __init__(self):
+        self.logger = setup_logger(self.__class__.__name__)
+        try:
+            import spotipy  # type: ignore[import-not-found]
+            from spotipy.oauth2 import SpotifyOAuth  # type: ignore[import-not-found]
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "spotipy is required to use SpotifyController. "
+                "Install dependencies with `pip install -r requirements.txt`."
+            ) from exc
+
         self.sp = spotipy.Spotify(
             auth_manager=SpotifyOAuth(
                 scope=(
@@ -30,7 +43,6 @@ class SpotifyController:
                 redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI"),
             )
         )
-        self.logger = setup_logger(self.__class__.__name__)
 
     def get_current_song(self):
         try:

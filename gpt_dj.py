@@ -6,7 +6,11 @@ from openai import OpenAIError
 import requests
 import logging
 import threading
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover
+    def load_dotenv(*_args, **_kwargs):
+        return False
 from gpt_utils import count_tokens
 from logger_utils import setup_logger
 from rich.console import Console

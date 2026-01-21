@@ -8,7 +8,11 @@ import time
 import os
 import json
 import re
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover
+    def load_dotenv(*_args, **_kwargs):
+        return False
 from datetime import datetime
 from time import sleep
 
@@ -31,6 +35,7 @@ from rich.prompt import Prompt
 from rich.text import Text
 
 from logger_utils import setup_logger
+from freeze_watchdog import Heartbeat, log_if_slow, start_freeze_watchdog
 
 # === Load Environment Variables ===
 load_dotenv()
@@ -43,6 +48,11 @@ with open(prompts_path, "r", encoding="utf-8") as f:
 # === Setup Logging ===
 log_path = os.path.join(os.path.dirname(__file__), "requests.log")
 logger = setup_logger("FreeRadioMain", log_path)
+
+# === Freeze Diagnostics ===
+# Enable with `RADIOFREE_FREEZE_WATCHDOG=1` to dump thread stacks when the main
+# loop stops making forward progress.
+HEARTBEAT = Heartbeat()
 
 # --- Command Logging Setup ---
 COMMAND_LABELS = {
@@ -378,14 +388,8 @@ def get_next_queued_track() -> tuple[str | None, str | None]:
     return None, None
 
 
-def create_layout(song_name, artist_name):
-    if show_help:
-        return Panel(
-            get_menu_text(),
-            title="󰮫 Help (ESC)",
-            border_style="yellow",
-        )
-
+def create_layout(song_name: str, artist_name: str, playback: dict | None = None) -> Layout:
+    """Build and return the Rich layout for the main UI."""
 
     layout = Layout()
     layout.split(
@@ -405,9 +409,9 @@ def create_layout(song_name, artist_name):
     )
 
     # Header panel
-    playback = spotify_controller.sp.current_playback() or {}
-    progress = playback.get("progress_ms", 0)
-    duration = playback.get("item", {}).get("duration_ms", 0)
+    playback_data = playback or {}
+    progress = playback_data.get("progress_ms", 0)
+    duration = playback_data.get("item", {}).get("duration_ms", 0)
     elapsed = time.strftime("%M:%S", time.gmtime(progress // 1000))
     total = time.strftime("%M:%S", time.gmtime(duration // 1000))
     progress_bar = render_progress_bar(progress, duration)
@@ -541,7 +545,18 @@ def song_insights(song_name, artist_name):
 def read_input():
     try:
         while True:
+            input_debug = os.getenv("RADIOFREE_INPUT_DEBUG", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "y",
+                "on",
+            }
+            if input_debug:
+                logger.debug("read_input: waiting for Prompt.ask()")
             choice = Prompt.ask("[bold green]   Select an option[/bold green]")
+            if input_debug:
+                logger.debug("read_input: received choice=%r", choice)
             user_input_queue.put(choice)
     except KeyboardInterrupt:
         pass
@@ -555,6 +570,14 @@ def process_user_input(choice: str, current_song: str, current_artist: str):
         current_song: Title of the song currently playing.
         current_artist: Artist of the song currently playing.
     """
+
+    slow_ms = float(os.getenv("RADIOFREE_SLOW_LOG_MS", "750") or 750)
+    with log_if_slow(logger, f"process_user_input(choice={choice!r})", slow_ms):
+        _process_user_input_inner(choice, current_song, current_artist)
+
+
+def _process_user_input_inner(choice: str, current_song: str, current_artist: str) -> None:
+    """Implementation for ``process_user_input`` (wrapped for slow logging)."""
 
     override_label = None
     if (
@@ -773,6 +796,7 @@ def handle_track_change(
 def main():
     global last_song, show_lyrics, show_gpt_log, lyrics_view_mode, lyrics_cursor
     try:
+        start_freeze_watchdog(logger, HEARTBEAT)
         threading.Thread(target=read_input, daemon=True).start()
         console.print("[green]🚀 Starting FreeRadioDJ...[/green]\n")
         song_name, artist_name = spotify_controller.get_current_song()
@@ -800,7 +824,14 @@ def main():
         with Live(refresh_per_second=10, screen=True) as live:
             while True:
                 try:
-                    playback = spotify_controller.sp.current_playback()
+                    HEARTBEAT.beat("spotify.current_playback")
+                    slow_ms = float(os.getenv("RADIOFREE_SLOW_LOG_MS", "750") or 750)
+                    with log_if_slow(
+                        logger,
+                        "spotify_controller.sp.current_playback()",
+                        slow_ms,
+                    ):
+                        playback = spotify_controller.sp.current_playback()
                 except (ReadTimeout, RequestException) as e:
                     notify(f"Spotify API error: {e}", style="red")
                     continue
@@ -856,13 +887,22 @@ def main():
                             upnext.queue[0]["track_name"],
                             upnext.queue[0]["artist_name"],
                         )
-                live.update(create_layout(current_song, current_artist))
+                HEARTBEAT.beat("render.create_layout")
+                slow_ms = float(os.getenv("RADIOFREE_SLOW_LOG_MS", "750") or 750)
+                with log_if_slow(logger, "create_layout()", slow_ms):
+                    layout = create_layout(current_song, current_artist, playback=playback)
+                HEARTBEAT.beat("render.live.update")
+                with log_if_slow(logger, "live.update()", slow_ms):
+                    live.update(layout)
+                HEARTBEAT.beat("render.done")
                 if refresh_event.is_set():
                     live.refresh()
                     refresh_event.clear()
                 if not user_input_queue.empty():
                     choice = user_input_queue.get()
+                    HEARTBEAT.beat(f"input.process({choice!r})")
                     process_user_input(choice, current_song, current_artist)
+                    HEARTBEAT.beat("input.processed")
                 time.sleep(0.5)
     except KeyboardInterrupt:
         console.print("\n[bold red]⏹ Exiting FreeRadioDJ... Goodbye![/bold red]")
